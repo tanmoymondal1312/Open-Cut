@@ -19,4 +19,9 @@
     <string name="play_video">Play</string>
     <string name="pause_video">Pause</string>
     <string name="seek_video">Seek video</string>
+    <string name="player_time">%1$s / %2$s</string>
+    <string name="picker_title">Select video</string>
+    <string name="picker_back">Back</string>
+    <string name="no_videos">No videos found</string>
+    <string name="permission_needed">Allow Auto Cut to access your videos to see them here.\nTap to allow</string>
 </resources>

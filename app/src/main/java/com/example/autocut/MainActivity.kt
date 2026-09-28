@@ -5,8 +5,6 @@ import android.os.Bundle
 import android.view.View
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.ViewCompat
@@ -16,18 +14,6 @@ import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 
 class MainActivity : AppCompatActivity() {
-
-    private val pickVideo = registerForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) {
-            startActivity(
-                Intent(this, EditActivity::class.java)
-                    .setData(uri)
-                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            )
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
@@ -48,11 +34,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         findViewById<View>(R.id.btnOpenVideo).setOnClickListener {
-            pickVideo.launch(
-                PickVisualMediaRequest(
-                    ActivityResultContracts.PickVisualMedia.VideoOnly
-                )
-            )
+            startActivity(Intent(this, VideoPickerActivity::class.java))
         }
     }
 

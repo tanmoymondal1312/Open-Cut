@@ -9,6 +9,7 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.SeekBar
+import android.widget.TextView
 import android.widget.Toast
 import android.widget.VideoView
 import androidx.activity.enableEdgeToEdge
@@ -16,6 +17,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import java.util.Locale
 import kotlin.math.min
 
 class EditActivity : AppCompatActivity() {
@@ -23,6 +25,8 @@ class EditActivity : AppCompatActivity() {
     private lateinit var videoView: VideoView
     private lateinit var previewContainer: FrameLayout
     private lateinit var seekBar: SeekBar
+    private lateinit var controlBar: View
+    private lateinit var tvTime: TextView
     private lateinit var btnPlayPause: ImageView
     private lateinit var timeline: TimelineView
     private val handler = Handler(Looper.getMainLooper())
@@ -50,6 +54,8 @@ class EditActivity : AppCompatActivity() {
         videoView = findViewById(R.id.videoView)
         previewContainer = findViewById(R.id.previewContainer)
         seekBar = findViewById(R.id.seekBar)
+        controlBar = findViewById(R.id.controlBar)
+        tvTime = findViewById(R.id.tvTime)
         btnPlayPause = findViewById(R.id.btnPlayPause)
         timeline = findViewById(R.id.timeline)
 
@@ -100,7 +106,9 @@ class EditActivity : AppCompatActivity() {
                 if (!fromUser || !prepared) return
                 val duration = videoView.duration
                 if (duration <= 0) return
-                videoView.seekTo((progress.toLong() * duration / 1000L).toInt())
+                val position = progress.toLong() * duration / 1000L
+                videoView.seekTo(position.toInt())
+                updateClock(position, duration.toLong())
             }
 
             override fun onStartTrackingTouch(bar: SeekBar) {
@@ -149,7 +157,7 @@ class EditActivity : AppCompatActivity() {
         }
     }
 
-    private fun controls(): List<View> = listOf(btnPlayPause, seekBar)
+    private fun controls(): List<View> = listOf(btnPlayPause, controlBar)
 
     private fun togglePlayPause() {
         if (!prepared) return
@@ -174,7 +182,32 @@ class EditActivity : AppCompatActivity() {
         if (!prepared || seeking) return
         val duration = videoView.duration
         if (duration <= 0) return
-        seekBar.progress = (videoView.currentPosition.toLong() * 1000L / duration).toInt()
+        val position = videoView.currentPosition.toLong()
+        seekBar.progress = (position * 1000L / duration).toInt()
+        updateClock(position, duration.toLong())
+    }
+
+    private fun updateClock(positionMs: Long, durationMs: Long) {
+        tvTime.text = getString(
+            R.string.player_time,
+            formatClock(positionMs),
+            formatClock(durationMs)
+        )
+    }
+
+    private fun formatClock(ms: Long): String {
+        val totalSeconds = ms.coerceAtLeast(0L) / 1000L
+        return if (totalSeconds >= 3600L) {
+            String.format(
+                Locale.US,
+                "%d:%02d:%02d",
+                totalSeconds / 3600,
+                (totalSeconds % 3600) / 60,
+                totalSeconds % 60
+            )
+        } else {
+            String.format(Locale.US, "%02d:%02d", totalSeconds / 60, totalSeconds % 60)
+        }
     }
 
     private fun preparePlayer(uri: Uri) {
@@ -185,6 +218,7 @@ class EditActivity : AppCompatActivity() {
                 fitPreviewToVideo(width, height)
             }
             fitPreviewToVideo(mediaPlayer.videoWidth, mediaPlayer.videoHeight)
+            updateClock(0L, mediaPlayer.duration.toLong())
             videoView.start()
             syncPlayerControls()
             showControls()

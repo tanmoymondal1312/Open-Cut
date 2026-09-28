@@ -53,21 +53,42 @@
                 android:layout_gravity="bottom"
                 android:background="@color/preview_edge" />
 
-            <SeekBar
-                android:id="@+id/seekBar"
+            <LinearLayout
+                android:id="@+id/controlBar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_gravity="bottom"
                 android:layout_marginStart="18dp"
                 android:layout_marginEnd="18dp"
-                android:layout_marginBottom="18dp"
-                android:contentDescription="@string/seek_video"
-                android:max="1000"
-                android:progressBackgroundTint="@color/stroke_20"
-                android:progressTint="@color/white"
-                android:splitTrack="false"
-                android:thumbTint="@color/white"
-                android:visibility="invisible" />
+                android:layout_marginBottom="14dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:visibility="invisible">
+
+                <SeekBar
+                    android:id="@+id/seekBar"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:contentDescription="@string/seek_video"
+                    android:max="1000"
+                    android:progressBackgroundTint="@color/stroke_20"
+                    android:progressTint="@color/white"
+                    android:splitTrack="false"
+                    android:thumbTint="@color/white" />
+
+                <TextView
+                    android:id="@+id/tvTime"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:shadowColor="#80000000"
+                    android:shadowRadius="4"
+                    android:textColor="@color/white"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    tools:text="00:00 / 00:00" />
+            </LinearLayout>
 
             <ImageView
                 android:id="@+id/btnPlayPause"
