@@ -10,6 +10,7 @@ import android.provider.MediaStore
 import android.view.View
 import android.widget.GridView
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
@@ -45,21 +46,26 @@ class VideoPickerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_video_picker)
+        window.setDimAmount(DIM_AMOUNT)
 
         gridView = findViewById(R.id.gridVideos)
         emptyState = findViewById(R.id.tvEmpty)
         permissionState = findViewById(R.id.tvPermission)
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.pickerRoot)) { view, insets ->
+        val content = findViewById<LinearLayout>(R.id.pickerContent)
+        val sheet = findViewById<LinearLayout>(R.id.sheet)
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.pickerRoot)) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            content.setPadding(bars.left, bars.top, bars.right, 0)
+            sheet.setPadding(0, 0, 0, bars.bottom)
             insets
         }
 
         adapter = VideoAdapter(this) { item -> openEditor(item) }
         gridView.adapter = adapter
 
-        findViewById<ImageView>(R.id.btnBack).setOnClickListener { finish() }
+        findViewById<ImageView>(R.id.btnClose).setOnClickListener { finish() }
+        findViewById<View>(R.id.clickAway).setOnClickListener { finish() }
         permissionState.setOnClickListener { requestVideoAccess() }
 
         if (hasVideoAccess()) {
@@ -76,6 +82,7 @@ class VideoPickerActivity : AppCompatActivity() {
                 .setData(item.uri)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         )
+        finish()
     }
 
     private fun requiredPermissions(): Array<String> = when {
@@ -183,5 +190,9 @@ class VideoPickerActivity : AppCompatActivity() {
         loader.shutdownNow()
         adapter.release()
         super.onDestroy()
+    }
+
+    companion object {
+        private const val DIM_AMOUNT = 0.62f
     }
 }

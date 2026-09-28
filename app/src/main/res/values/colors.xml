@@ -29,6 +29,10 @@
     <color name="nav_bg">#BB0B0E18</color>
     <color name="nav_inactive">#FF8A93A6</color>
 
+    <!-- Video picker sheet -->
+    <color name="picker_bg">#FF15161A</color>
+    <color name="picker_handle">#33FFFFFF</color>
+
     <color name="logo_tile">#FF0E1526</color>
     <color name="logo_tile_stroke">#FF2F6FB8</color>
 
