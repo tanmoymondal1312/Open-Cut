@@ -31,4 +31,17 @@
 
     <color name="logo_tile">#FF0E1526</color>
     <color name="logo_tile_stroke">#FF2F6FB8</color>
+
+    <!-- Edit panel / timeline -->
+    <color name="preview_bg">#D915161A</color>
+    <color name="preview_edge">#26FFFFFF</color>
+    <color name="timeline_bg">#FF0E1220</color>
+    <color name="timeline_strip">#FF1A1F2E</color>
+    <color name="timeline_stroke">#FF252C40</color>
+    <color name="timeline_placeholder">#FF252B3B</color>
+    <color name="timeline_separator">#59000000</color>
+    <color name="timeline_tick">#FF495063</color>
+    <color name="timeline_label">#FF9BA4B8</color>
+    <color name="timeline_playhead">#FFFFFFFF</color>
+    <color name="timeline_pill">#F00B0F1B</color>
 </resources>

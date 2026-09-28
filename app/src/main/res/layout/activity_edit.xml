@@ -1,0 +1,222 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/app_bg"
+    tools:context=".EditActivity">
+
+    <ImageView
+        android:id="@+id/bgImage"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:scaleType="centerCrop"
+        android:src="@drawable/main_bg" />
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/main"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent">
+
+        <!-- ================= VIDEO PREVIEW ================= -->
+        <FrameLayout
+            android:id="@+id/previewContainer"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:background="@drawable/bg_preview_glass"
+            app:layout_constraintBottom_toTopOf="@id/timeline"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent">
+
+            <VideoView
+                android:id="@+id/videoView"
+                android:background="@android:color/transparent"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_gravity="center"
+                android:contentDescription="@string/video_preview" />
+        </FrameLayout>
+
+        <!-- ================= TIMELINE ================= -->
+        <com.example.autocut.TimelineView
+            android:id="@+id/timeline"
+            android:layout_width="0dp"
+            android:layout_height="132dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="16dp"
+            android:contentDescription="@string/timeline_desc"
+            app:layout_constraintBottom_toTopOf="@id/buttonRow"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent" />
+
+        <!-- ================= ACTIONS ================= -->
+        <LinearLayout
+            android:id="@+id/buttonRow"
+            android:layout_width="0dp"
+            android:layout_height="54dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginBottom="18dp"
+            android:orientation="horizontal"
+            app:layout_constraintBottom_toTopOf="@id/navDivider"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent">
+
+            <LinearLayout
+                android:id="@+id/btnStartCut"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@drawable/bg_btn_secondary"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tvStartCut"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:letterSpacing="0.02"
+                    android:text="@string/start_cut"
+                    android:textColor="@color/text_on_dark"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/btnCutExport"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginStart="12dp"
+                android:background="@drawable/bg_btn_primary"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tvCutExport"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:letterSpacing="0.02"
+                    android:text="@string/cut_export"
+                    android:textColor="@color/white"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ================= BOTTOM NAV ================= -->
+        <View
+            android:id="@+id/navDivider"
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:background="@color/stroke_15"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="@id/bottomNav" />
+
+        <LinearLayout
+            android:id="@+id/bottomNav"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:minHeight="74dp"
+            android:background="@color/nav_bg"
+            android:orientation="horizontal"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent">
+
+            <LinearLayout
+                android:id="@+id/navHome"
+                android:layout_width="0dp"
+                android:layout_height="74dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:id="@+id/ivNavHome"
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:contentDescription="@string/nav_home"
+                    android:src="@drawable/ic_home"
+                    android:tint="@color/nav_inactive" />
+
+                <TextView
+                    android:id="@+id/tvNavHome"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="@string/nav_home"
+                    android:textColor="@color/nav_inactive"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/navEdit"
+                android:layout_width="0dp"
+                android:layout_height="74dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:id="@+id/ivNavEdit"
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:contentDescription="@string/nav_edit"
+                    android:src="@drawable/ic_scissors"
+                    android:tint="@color/accent_cyan" />
+
+                <TextView
+                    android:id="@+id/tvNavEdit"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="@string/nav_edit"
+                    android:textColor="@color/accent_cyan"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/navSettings"
+                android:layout_width="0dp"
+                android:layout_height="74dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:id="@+id/ivNavSettings"
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:contentDescription="@string/nav_settings"
+                    android:src="@drawable/ic_settings" />
+
+                <TextView
+                    android:id="@+id/tvNavSettings"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="@string/nav_settings"
+                    android:textColor="@color/nav_inactive"
+                    android:textSize="13sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+</FrameLayout>
