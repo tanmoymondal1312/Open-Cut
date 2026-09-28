@@ -88,8 +88,12 @@ class EditActivity : AppCompatActivity() {
 
     private fun wirePlayerControls() {
         previewContainer.setOnClickListener {
-            if (controlsVisible) togglePlayPause()
-            showControls()
+            if (controlsVisible) {
+                handler.removeCallbacks(hideControlsRunnable)
+                hideControls()
+            } else {
+                showControls()
+            }
         }
         btnPlayPause.setOnClickListener {
             togglePlayPause()
