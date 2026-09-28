@@ -36,6 +36,12 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnOpenVideo).setOnClickListener {
             startActivity(Intent(this, VideoPickerActivity::class.java))
         }
+        findViewById<View>(R.id.navEdit).setOnClickListener {
+            startActivity(Intent(this, VideoPickerActivity::class.java))
+        }
+        findViewById<View>(R.id.navSettings).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
     }
 
     private fun applyTitleSpans() {

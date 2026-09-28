@@ -37,8 +37,15 @@ class CutEngine(private val context: Context) {
     @Volatile
     private var cancelled = false
 
-    fun cut(uri: Uri, fallbackDurationMs: Long, cuts: LongArray, listener: Listener) {
+    fun cut(
+        uri: Uri,
+        fallbackDurationMs: Long,
+        cuts: LongArray,
+        cutsPerSecond: Long,
+        listener: Listener
+    ) {
         cancelled = false
+        val keyFrameInterval = cutsPerSecond.coerceAtLeast(1L)
         Thread {
             try {
                 val probeInput = FFmpegKitConfig.getSafParameterForRead(context, uri)
@@ -64,7 +71,7 @@ class CutEngine(private val context: Context) {
                     "-preset", "veryfast",
                     "-crf", "18",
                     "-pix_fmt", "yuv420p",
-                    "-force_key_frames", "expr:gte(t,n_forced/3)",
+                    "-force_key_frames", "expr:gte(t,n_forced/$keyFrameInterval)",
                     "-c:a", "aac",
                     "-b:a", audioBitrate.toString(),
                     "-movflags", "+faststart",

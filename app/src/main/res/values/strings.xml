@@ -44,4 +44,23 @@
     <string name="cut_error_export">Could not save the video. Please try again.</string>
     <string name="cut_permission_denied">Storage permission is required to save videos</string>
     <string name="cut_bad_video">Could not read this video</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_back">Back</string>
+    <string name="section_cut_density">CUT DENSITY</string>
+    <string name="cps_label">Cuts per second</string>
+    <string name="cps_hint">Hidden cuts applied every 1 second of video</string>
+    <string name="preview_caption">Live preview · 1 second</string>
+    <string name="preview_interval">every %1$.2fs</string>
+    <string name="range_min">%1$d min</string>
+    <string name="range_max_default">%1$d max</string>
+    <string name="range_max_fps">%1$d max · %2$d fps video</string>
+    <string name="fps_chip">%1$d fps</string>
+    <string name="fps_chip_unknown">No video yet</string>
+    <string name="fps_info_known">Frame rate sets the cap: a %1$d fps video allows up to %2$d cuts per second. The value clamps automatically for every video.</string>
+    <string name="fps_info_unknown">Open a video and its frame rate will set the cap automatically. Until then the limit is %1$d cuts per second.</string>
+    <string name="tip_title">Why it matters</string>
+    <string name="tip_text">More cuts per second make the exported file technically different while staying visually identical for viewers.</string>
+    <string name="app_version">Auto Cut · Version 1.0</string>
 </resources>

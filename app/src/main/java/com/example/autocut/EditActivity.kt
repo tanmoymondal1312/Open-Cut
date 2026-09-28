@@ -2,6 +2,7 @@
 
 import android.Manifest
 import android.app.Dialog
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
@@ -28,6 +29,9 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.arthenica.ffmpegkit.FFmpegKitConfig
+import com.arthenica.ffmpegkit.FFprobeKit
+import com.arthenica.ffmpegkit.MediaInformation
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -53,6 +57,7 @@ class EditActivity : AppCompatActivity() {
     private var videoHeight = 0
 
     private var videoUri: Uri? = null
+    private var videoFps = 0
     private val engine by lazy { CutEngine(applicationContext) }
     private var cutState = CutState.IDLE
     private var cutTimes = LongArray(0)
@@ -111,6 +116,9 @@ class EditActivity : AppCompatActivity() {
         }
 
         findViewById<View>(R.id.navHome).setOnClickListener { finish() }
+        findViewById<View>(R.id.navSettings).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
         btnStartCut = findViewById(R.id.btnStartCut)
         btnCutExport = findViewById(R.id.btnCutExport)
         wirePlayerControls()
@@ -124,6 +132,42 @@ class EditActivity : AppCompatActivity() {
         videoUri = uri
         preparePlayer(uri)
         timeline.setVideoUri(uri)
+        probeFrameRate(uri)
+    }
+
+    private fun probeFrameRate(uri: Uri) {
+        Thread {
+            var fps = 0
+            try {
+                val input = FFmpegKitConfig.getSafParameterForRead(applicationContext, uri)
+                fps = parseFrameRate(FFprobeKit.getMediaInformation(input).mediaInformation)
+            } catch (error: Throwable) {
+                fps = 0
+            }
+            val result = fps
+            runOnUiThread {
+                if (result > 0 && videoUri == uri) {
+                    videoFps = result
+                    AppSettings.setLastVideoFps(this, result)
+                }
+            }
+        }.start()
+    }
+
+    private fun parseFrameRate(info: MediaInformation?): Int {
+        val raw = info?.streams
+            ?.firstOrNull { it.type == "video" }
+            ?.averageFrameRate
+            ?: return 0
+        return try {
+            val parts = raw.split("/")
+            val numerator = parts[0].toDouble()
+            val denominator = if (parts.size > 1) parts[1].toDouble() else 1.0
+            if (numerator <= 0 || denominator <= 0) 0
+            else Math.round(numerator / denominator).toInt()
+        } catch (error: Throwable) {
+            0
+        }
     }
 
     private fun wirePlayerControls() {
@@ -306,7 +350,8 @@ class EditActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.cut_bad_video, Toast.LENGTH_SHORT).show()
             return
         }
-        val cuts = buildCuts(durationMs)
+        val cps = effectiveCutsPerSecond()
+        val cuts = buildCuts(durationMs, cps)
         cutTimes = cuts
         this.autoExport = autoExport
         cutState = CutState.CUTTING
@@ -317,14 +362,24 @@ class EditActivity : AppCompatActivity() {
         setActionButtonsEnabled(false)
         timeline.setCutMarks(cuts, Long.MIN_VALUE)
         showCuttingDialog(cuts.size)
-        engine.cut(uri, durationMs.toLong(), cuts, cutListener)
+        engine.cut(uri, durationMs.toLong(), cuts, cps.toLong(), cutListener)
     }
 
-    private fun buildCuts(durationMs: Int): LongArray {
-        val count = (durationMs.toLong() * CUTS_PER_SECOND) / 1000L
+    private fun effectiveCutsPerSecond(): Int {
+        val preference = AppSettings.cutsPerSecond(this)
+        val frameRateLimit = (videoFps.takeIf { it > 0 }
+            ?: AppSettings.lastVideoFps(this).takeIf { it > 0 }
+            ?: AppSettings.DEFAULT_MAX_FPS)
+            .coerceAtLeast(1)
+        val max = minOf(AppSettings.MAX_CUTS_PER_SECOND, frameRateLimit)
+        return preference.coerceIn(AppSettings.MIN_CUTS_PER_SECOND, max)
+    }
+
+    private fun buildCuts(durationMs: Int, cutsPerSecond: Int): LongArray {
+        val count = (durationMs.toLong() * cutsPerSecond) / 1000L
         if (count <= 0L) return LongArray(0)
         return LongArray(count.toInt()) { index ->
-            (index + 1) * 1000L / CUTS_PER_SECOND
+            (index + 1) * 1000L / cutsPerSecond
         }
     }
 
@@ -572,7 +627,6 @@ class EditActivity : AppCompatActivity() {
 
     companion object {
         private const val CONTROLS_HIDE_MS = 3000L
-        private const val CUTS_PER_SECOND = 3L
         private const val DIALOG_DIM = 0.55f
         private const val DIALOG_WIDTH_FRACTION = 0.86f
         private const val REQUEST_STORAGE = 41
