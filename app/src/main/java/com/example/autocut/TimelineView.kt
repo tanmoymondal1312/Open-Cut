@@ -64,6 +64,10 @@ class TimelineView @JvmOverloads constructor(
     private val pillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val pillTextPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val cutMarkPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    private var cutMarks = LongArray(0)
+    private var cutAppliedMs = Long.MIN_VALUE
 
     private val scroller = OverScroller(context)
 
@@ -172,6 +176,25 @@ class TimelineView @JvmOverloads constructor(
         pillTextPaint.textAlign = Paint.Align.CENTER
         pillTextPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         handlePaint.color = ContextCompat.getColor(context, R.color.timeline_playhead)
+        cutMarkPaint.color = ContextCompat.getColor(context, R.color.cut_mark)
+        cutMarkPaint.strokeWidth = dp(1.5f)
+    }
+
+    fun setCutMarks(timesMs: LongArray, appliedUpToMs: Long) {
+        cutMarks = timesMs
+        cutAppliedMs = appliedUpToMs
+        invalidate()
+    }
+
+    fun setCutProgress(appliedUpToMs: Long) {
+        cutAppliedMs = appliedUpToMs
+        invalidate()
+    }
+
+    fun clearCutMarks() {
+        cutMarks = LongArray(0)
+        cutAppliedMs = Long.MIN_VALUE
+        invalidate()
     }
 
     fun setVideoUri(uri: Uri) {
@@ -270,6 +293,7 @@ class TimelineView @JvmOverloads constructor(
         val stripRect = stripRect()
         canvas.drawRoundRect(stripRect, dp(6f), dp(6f), stripPaint)
         drawFrames(canvas, stripRect)
+        drawCutMarks(canvas, stripRect)
         drawRuler(canvas, w, stripRect.top)
         drawPlayhead(canvas, w, h)
 
@@ -318,6 +342,19 @@ class TimelineView @JvmOverloads constructor(
                 canvas.drawLine(rect.left, rect.top, rect.left, rect.bottom, separatorPaint)
             }
             index++
+        }
+        canvas.restore()
+    }
+
+    private fun drawCutMarks(canvas: Canvas, stripRect: RectF) {
+        if (cutMarks.isEmpty() || durationMs <= 0L || width <= 0 || pxPerMs <= 0f) return
+        canvas.save()
+        canvas.clipRect(stripRect)
+        for (cut in cutMarks) {
+            if (cut > cutAppliedMs) break
+            val x = xForTime(cut)
+            if (x < stripRect.left || x > stripRect.right) continue
+            canvas.drawLine(x, stripRect.top, x, stripRect.bottom, cutMarkPaint)
         }
         canvas.restore()
     }

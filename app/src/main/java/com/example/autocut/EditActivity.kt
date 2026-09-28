@@ -1,13 +1,22 @@
 ﻿package com.example.autocut
 
+import android.Manifest
+import android.app.Dialog
+import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
+import android.view.Window
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -15,8 +24,13 @@ import android.widget.VideoView
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import kotlin.math.min
 
@@ -29,12 +43,32 @@ class EditActivity : AppCompatActivity() {
     private lateinit var tvTime: TextView
     private lateinit var btnPlayPause: ImageView
     private lateinit var timeline: TimelineView
+    private lateinit var btnStartCut: View
+    private lateinit var btnCutExport: View
     private val handler = Handler(Looper.getMainLooper())
     private var prepared = false
     private var seeking = false
     private var controlsVisible = false
     private var videoWidth = 0
     private var videoHeight = 0
+
+    private var videoUri: Uri? = null
+    private val engine by lazy { CutEngine(applicationContext) }
+    private var cutState = CutState.IDLE
+    private var cutTimes = LongArray(0)
+    private var autoExport = false
+    private var resumeAfterCut = false
+
+    private var cutDialog: Dialog? = null
+    private lateinit var tvDialogTitle: TextView
+    private lateinit var tvDialogStatus: TextView
+    private lateinit var tvDialogPercent: TextView
+    private lateinit var progressCut: ProgressBar
+    private lateinit var btnDialogCancel: View
+    private lateinit var btnDialogClose: View
+    private lateinit var btnDialogExport: View
+
+    private enum class CutState { IDLE, CUTTING, CUT_DONE, EXPORTING }
 
     private val hideControlsRunnable = Runnable { hideControls() }
 
@@ -77,13 +111,17 @@ class EditActivity : AppCompatActivity() {
         }
 
         findViewById<View>(R.id.navHome).setOnClickListener { finish() }
+        btnStartCut = findViewById(R.id.btnStartCut)
+        btnCutExport = findViewById(R.id.btnCutExport)
         wirePlayerControls()
+        wireCutControls()
 
         val uri = intent.data
         if (uri == null) {
             finish()
             return
         }
+        videoUri = uri
         preparePlayer(uri)
         timeline.setVideoUri(uri)
     }
@@ -253,6 +291,259 @@ class EditActivity : AppCompatActivity() {
         videoView.layoutParams = params
     }
 
+    // ==================== CUT / EXPORT ====================
+
+    private fun wireCutControls() {
+        btnStartCut.setOnClickListener { startCut(autoExport = false) }
+        btnCutExport.setOnClickListener { startCut(autoExport = true) }
+    }
+
+    private fun startCut(autoExport: Boolean) {
+        if (cutState == CutState.CUTTING || cutState == CutState.EXPORTING) return
+        val uri = videoUri ?: return
+        val durationMs = videoView.duration
+        if (!prepared || durationMs <= 0) {
+            Toast.makeText(this, R.string.cut_bad_video, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val cuts = buildCuts(durationMs)
+        cutTimes = cuts
+        this.autoExport = autoExport
+        cutState = CutState.CUTTING
+        resumeAfterCut = prepared && videoView.isPlaying
+        videoView.pause()
+        syncPlayerControls()
+        hideControls()
+        setActionButtonsEnabled(false)
+        timeline.setCutMarks(cuts, Long.MIN_VALUE)
+        showCuttingDialog(cuts.size)
+        engine.cut(uri, durationMs.toLong(), cuts, cutListener)
+    }
+
+    private fun buildCuts(durationMs: Int): LongArray {
+        val count = (durationMs.toLong() * CUTS_PER_SECOND) / 1000L
+        if (count <= 0L) return LongArray(0)
+        return LongArray(count.toInt()) { index ->
+            (index + 1) * 1000L / CUTS_PER_SECOND
+        }
+    }
+
+    private fun ensureCutDialog(): Dialog {
+        cutDialog?.let { return it }
+        val dialog = Dialog(this).apply {
+            requestWindowFeature(Window.FEATURE_NO_TITLE)
+            setContentView(R.layout.dialog_cut_progress)
+            setCanceledOnTouchOutside(false)
+            window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            window?.setDimAmount(DIALOG_DIM)
+            setOnCancelListener { handleCutDialogCancel() }
+        }
+        tvDialogTitle = dialog.findViewById(R.id.tvDialogTitle)
+        tvDialogStatus = dialog.findViewById(R.id.tvDialogStatus)
+        tvDialogPercent = dialog.findViewById(R.id.tvDialogPercent)
+        progressCut = dialog.findViewById(R.id.progressCut)
+        btnDialogCancel = dialog.findViewById(R.id.btnDialogCancel)
+        btnDialogClose = dialog.findViewById(R.id.btnDialogClose)
+        btnDialogExport = dialog.findViewById(R.id.btnDialogExport)
+        btnDialogCancel.setOnClickListener { dialog.cancel() }
+        btnDialogClose.setOnClickListener { closeCutDialog() }
+        btnDialogExport.setOnClickListener { startExport() }
+        val width = (resources.displayMetrics.widthPixels * DIALOG_WIDTH_FRACTION).toInt()
+        dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+        cutDialog = dialog
+        return dialog
+    }
+
+    private fun showDialog() {
+        val dialog = ensureCutDialog()
+        if (!dialog.isShowing) dialog.show()
+    }
+
+    private fun showCuttingDialog(totalCuts: Int) {
+        showDialog()
+        tvDialogTitle.setText(R.string.cut_dialog_title)
+        tvDialogStatus.text =
+            if (totalCuts > 0) getString(R.string.cut_dialog_count, 0, totalCuts)
+            else getString(R.string.cut_dialog_preparing)
+        tvDialogPercent.visibility = View.VISIBLE
+        tvDialogPercent.text = getString(R.string.cut_dialog_percent, 0)
+        progressCut.visibility = View.VISIBLE
+        progressCut.progress = 0
+        btnDialogCancel.visibility = View.VISIBLE
+        btnDialogClose.visibility = View.GONE
+        btnDialogExport.visibility = View.GONE
+    }
+
+    private fun showCutDoneDialog() {
+        tvDialogTitle.setText(R.string.cut_done_title)
+        tvDialogStatus.text = getString(R.string.cut_done_status, cutTimes.size)
+        tvDialogPercent.visibility = View.VISIBLE
+        tvDialogPercent.text = getString(R.string.cut_dialog_percent, 100)
+        progressCut.visibility = View.VISIBLE
+        progressCut.progress = 100
+        btnDialogCancel.visibility = View.GONE
+        btnDialogClose.visibility = View.VISIBLE
+        btnDialogExport.visibility = View.VISIBLE
+    }
+
+    private fun showExportingDialog() {
+        showDialog()
+        tvDialogTitle.setText(R.string.cut_exporting_title)
+        tvDialogStatus.setText(R.string.cut_exporting_status)
+        tvDialogPercent.visibility = View.VISIBLE
+        tvDialogPercent.text = getString(R.string.cut_dialog_percent, 0)
+        progressCut.visibility = View.VISIBLE
+        progressCut.progress = 0
+        btnDialogCancel.visibility = View.VISIBLE
+        btnDialogClose.visibility = View.GONE
+        btnDialogExport.visibility = View.GONE
+    }
+
+    private fun showErrorDialog(message: String) {
+        showDialog()
+        tvDialogTitle.setText(R.string.cut_error_title)
+        tvDialogStatus.text = message
+        tvDialogPercent.visibility = View.GONE
+        progressCut.visibility = View.GONE
+        btnDialogCancel.visibility = View.GONE
+        btnDialogClose.visibility = View.VISIBLE
+        btnDialogExport.visibility = View.GONE
+    }
+
+    private fun startExport() {
+        if (cutState != CutState.CUT_DONE) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                REQUEST_STORAGE
+            )
+            return
+        }
+        cutState = CutState.EXPORTING
+        showExportingDialog()
+        val name = "AutoCut_" +
+            SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + ".mp4"
+        engine.export(name, cutListener)
+    }
+
+    private fun closeCutDialog() {
+        cutState = CutState.IDLE
+        setActionButtonsEnabled(true)
+        cutDialog?.dismiss()
+        resumePlayback()
+    }
+
+    private fun resumePlayback() {
+        if (resumeAfterCut && prepared && !videoView.isPlaying) {
+            videoView.start()
+            syncPlayerControls()
+        }
+    }
+
+    private fun handleCutDialogCancel() {
+        when (cutState) {
+            CutState.CUTTING -> {
+                engine.cancelCut()
+                timeline.clearCutMarks()
+            }
+
+            CutState.EXPORTING -> engine.cancelExport()
+
+            else -> Unit
+        }
+        cutState = CutState.IDLE
+        setActionButtonsEnabled(true)
+        resumePlayback()
+    }
+
+    private fun setActionButtonsEnabled(enabled: Boolean) {
+        val alpha = if (enabled) 1f else 0.45f
+        for (button in listOf(btnStartCut, btnCutExport)) {
+            button.isEnabled = enabled
+            button.alpha = alpha
+        }
+    }
+
+    private val cutListener = object : CutEngine.Listener {
+        override fun onCutProgress(
+            percent: Int,
+            processedMs: Long,
+            appliedCuts: Int,
+            totalCuts: Int
+        ) {
+            if (cutState != CutState.CUTTING) return
+            tvDialogPercent.text = getString(R.string.cut_dialog_percent, percent)
+            tvDialogStatus.text = getString(R.string.cut_dialog_count, appliedCuts, totalCuts)
+            progressCut.progress = percent
+            timeline.setCutProgress(processedMs)
+        }
+
+        override fun onCutReady(output: File) {
+            if (cutState != CutState.CUTTING) return
+            cutState = CutState.CUT_DONE
+            timeline.setCutProgress(Long.MAX_VALUE)
+            if (autoExport) {
+                startExport()
+            } else {
+                showCutDoneDialog()
+            }
+        }
+
+        override fun onCutFailed() {
+            if (cutState != CutState.CUTTING) return
+            timeline.clearCutMarks()
+            cutState = CutState.IDLE
+            setActionButtonsEnabled(true)
+            showErrorDialog(getString(R.string.cut_error_cut))
+        }
+
+        override fun onExportProgress(percent: Int) {
+            if (cutState != CutState.EXPORTING) return
+            tvDialogPercent.text = getString(R.string.cut_dialog_percent, percent)
+            progressCut.progress = percent
+        }
+
+        override fun onExportSaved(fileName: String) {
+            if (cutState != CutState.EXPORTING) return
+            cutState = CutState.IDLE
+            setActionButtonsEnabled(true)
+            cutDialog?.dismiss()
+            resumePlayback()
+            Toast.makeText(
+                this@EditActivity,
+                getString(R.string.cut_exported, fileName),
+                Toast.LENGTH_LONG
+            ).show()
+        }
+
+        override fun onExportFailed() {
+            if (cutState != CutState.EXPORTING) return
+            cutState = CutState.IDLE
+            setActionButtonsEnabled(true)
+            showErrorDialog(getString(R.string.cut_error_export))
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQUEST_STORAGE) return
+        if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            startExport()
+        } else {
+            Toast.makeText(this, R.string.cut_permission_denied, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         if (prepared) {
@@ -271,6 +562,9 @@ class EditActivity : AppCompatActivity() {
     override fun onDestroy() {
         handler.removeCallbacks(progressTicker)
         handler.removeCallbacks(hideControlsRunnable)
+        engine.cancelCut()
+        engine.cancelExport()
+        cutDialog?.dismiss()
         timeline.release()
         videoView.stopPlayback()
         super.onDestroy()
@@ -278,5 +572,9 @@ class EditActivity : AppCompatActivity() {
 
     companion object {
         private const val CONTROLS_HIDE_MS = 3000L
+        private const val CUTS_PER_SECOND = 3L
+        private const val DIALOG_DIM = 0.55f
+        private const val DIALOG_WIDTH_FRACTION = 0.86f
+        private const val REQUEST_STORAGE = 41
     }
 }

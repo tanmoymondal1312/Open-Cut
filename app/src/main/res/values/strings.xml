@@ -25,4 +25,23 @@
     <string name="picker_close">Close</string>
     <string name="no_videos">No videos found</string>
     <string name="permission_needed">Allow Auto Cut to access your videos to see them here.\nTap to allow</string>
+
+    <!-- Cut / export -->
+    <string name="cut_dialog_title">Applying cuts</string>
+    <string name="cut_dialog_preparing">Preparing…</string>
+    <string name="cut_dialog_count">Cut %1$d of %2$d</string>
+    <string name="cut_dialog_percent">%1$d%%</string>
+    <string name="cut_done_title">Cut complete</string>
+    <string name="cut_done_status">%1$d cuts applied to your video</string>
+    <string name="cut_exporting_title">Exporting…</string>
+    <string name="cut_exporting_status">Saving to Download</string>
+    <string name="cut_exported">Saved to Download/%1$s</string>
+    <string name="cut_export_btn">Export</string>
+    <string name="cut_close_btn">Close</string>
+    <string name="cut_cancel_btn">Cancel</string>
+    <string name="cut_error_title">Something went wrong</string>
+    <string name="cut_error_cut">Could not cut this video. Please try again.</string>
+    <string name="cut_error_export">Could not save the video. Please try again.</string>
+    <string name="cut_permission_denied">Storage permission is required to save videos</string>
+    <string name="cut_bad_video">Could not read this video</string>
 </resources>

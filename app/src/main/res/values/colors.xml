@@ -48,4 +48,8 @@
     <color name="timeline_label">#FF9BA4B8</color>
     <color name="timeline_playhead">#FFFFFFFF</color>
     <color name="timeline_pill">#F00B0F1B</color>
+
+    <!-- Cut / export dialog -->
+    <color name="cut_mark">#FFF2F5FA</color>
+    <color name="dialog_bg">#FF14161E</color>
 </resources>
