@@ -16,6 +16,12 @@
         android:scaleType="centerCrop"
         android:src="@drawable/main_bg" />
 
+    <View
+        android:id="@+id/statusBarScrim"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:background="@color/preview_bg" />
+
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/main"
         android:layout_width="match_parent"
@@ -47,9 +53,7 @@
             android:id="@+id/timeline"
             android:layout_width="0dp"
             android:layout_height="132dp"
-            android:layout_marginStart="12dp"
             android:layout_marginTop="16dp"
-            android:layout_marginEnd="12dp"
             android:layout_marginBottom="16dp"
             android:contentDescription="@string/timeline_desc"
             app:layout_constraintBottom_toTopOf="@id/buttonRow"

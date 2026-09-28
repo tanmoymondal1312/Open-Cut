@@ -39,10 +39,14 @@ class EditActivity : AppCompatActivity() {
 
         val main = findViewById<View>(R.id.main)
         val bottomNav = findViewById<View>(R.id.bottomNav)
+        val statusBarScrim = findViewById<View>(R.id.statusBarScrim)
         ViewCompat.setOnApplyWindowInsetsListener(main) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             view.setPadding(bars.left, bars.top, bars.right, 0)
             bottomNav.setPadding(0, 0, 0, bars.bottom)
+            statusBarScrim.layoutParams = statusBarScrim.layoutParams.apply {
+                height = bars.top
+            }
             insets
         }
 
