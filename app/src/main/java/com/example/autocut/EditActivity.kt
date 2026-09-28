@@ -32,8 +32,11 @@ class EditActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var prepared = false
     private var seeking = false
+    private var controlsVisible = false
     private var videoWidth = 0
     private var videoHeight = 0
+
+    private val hideControlsRunnable = Runnable { hideControls() }
 
     private val progressTicker = object : Runnable {
         override fun run() {
@@ -84,8 +87,14 @@ class EditActivity : AppCompatActivity() {
     }
 
     private fun wirePlayerControls() {
-        previewContainer.setOnClickListener { togglePlayPause() }
-        btnPlayPause.setOnClickListener { togglePlayPause() }
+        previewContainer.setOnClickListener {
+            if (controlsVisible) togglePlayPause()
+            showControls()
+        }
+        btnPlayPause.setOnClickListener {
+            togglePlayPause()
+            showControls()
+        }
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
                 if (!fromUser || !prepared) return
@@ -96,15 +105,51 @@ class EditActivity : AppCompatActivity() {
 
             override fun onStartTrackingTouch(bar: SeekBar) {
                 seeking = true
+                handler.removeCallbacks(hideControlsRunnable)
             }
 
             override fun onStopTrackingTouch(bar: SeekBar) {
                 seeking = false
                 updateSeekBar()
+                showControls()
             }
         })
         syncPlayerControls()
     }
+
+    private fun showControls() {
+        for (control in controls()) {
+            if (control.visibility != View.VISIBLE) {
+                control.animate().cancel()
+                control.alpha = 0f
+                control.visibility = View.VISIBLE
+            }
+            control.animate().alpha(1f).setDuration(160L).start()
+        }
+        controlsVisible = true
+        handler.removeCallbacks(hideControlsRunnable)
+        handler.postDelayed(hideControlsRunnable, CONTROLS_HIDE_MS)
+    }
+
+    private fun hideControls() {
+        if (seeking) {
+            handler.postDelayed(hideControlsRunnable, CONTROLS_HIDE_MS)
+            return
+        }
+        controlsVisible = false
+        for (control in controls()) {
+            control.animate().cancel()
+            control.animate()
+                .alpha(0f)
+                .setDuration(200L)
+                .withEndAction {
+                    if (!controlsVisible) control.visibility = View.INVISIBLE
+                }
+                .start()
+        }
+    }
+
+    private fun controls(): List<View> = listOf(btnPlayPause, seekBar)
 
     private fun togglePlayPause() {
         if (!prepared) return
@@ -142,6 +187,7 @@ class EditActivity : AppCompatActivity() {
             fitPreviewToVideo(mediaPlayer.videoWidth, mediaPlayer.videoHeight)
             videoView.start()
             syncPlayerControls()
+            showControls()
         }
         videoView.setOnErrorListener { _, _, _ ->
             Toast.makeText(this, R.string.video_error, Toast.LENGTH_SHORT).show()
@@ -243,13 +289,19 @@ class EditActivity : AppCompatActivity() {
     override fun onPause() {
         if (prepared) videoView.pause()
         handler.removeCallbacks(progressTicker)
+        handler.removeCallbacks(hideControlsRunnable)
         super.onPause()
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(progressTicker)
+        handler.removeCallbacks(hideControlsRunnable)
         executor.shutdownNow()
         videoView.stopPlayback()
         super.onDestroy()
+    }
+
+    companion object {
+        private const val CONTROLS_HIDE_MS = 3000L
     }
 }

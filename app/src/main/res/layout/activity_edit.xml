@@ -66,7 +66,8 @@
                 android:progressBackgroundTint="@color/stroke_20"
                 android:progressTint="@color/white"
                 android:splitTrack="false"
-                android:thumbTint="@color/white" />
+                android:thumbTint="@color/white"
+                android:visibility="invisible" />
 
             <ImageView
                 android:id="@+id/btnPlayPause"
@@ -77,7 +78,8 @@
                 android:contentDescription="@string/play_video"
                 android:padding="16dp"
                 android:scaleType="centerInside"
-                android:src="@drawable/ic_pause" />
+                android:src="@drawable/ic_pause"
+                android:visibility="invisible" />
         </FrameLayout>
 
         <!-- ================= TIMELINE ================= -->
