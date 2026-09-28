@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="240dp"
+    android:height="156dp"
+    android:viewportWidth="240"
+    android:viewportHeight="156">
+
+    <!-- Main video screen -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#48668F"
+        android:strokeWidth="5.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="
+            M80,63
+            L149,63
+            C155,63 159,67 159,73
+            L159,117
+            C159,123 155,127 149,127
+            L80,127
+            C73,127 69,123 69,116
+            L69,74
+            C69,67 73,63 80,63
+            Z" />
+
+    <!-- Clapper top - outer shape -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#48668F"
+        android:strokeWidth="5.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="
+            M69,63
+            L66.8,53
+            C65.8,49.2 68,46.6 71.4,45.6
+            L144.6,26.1
+            C148.4,25.1 151.3,27.1 152.2,30.5
+            L154.1,36.6
+            C155.1,40 152.9,42.3 149.5,43.3
+            L76,62.7
+            Z" />
+
+    <!-- Clapper diagonal cut marks -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#48668F"
+        android:strokeWidth="5.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="
+            M79,45.4 L70.6,54.6
+            M99.5,39.9 L91.2,49.1
+            M120,34.4 L111.7,43.6
+            M140.5,28.9 L132.2,38.1" />
+
+    <!-- Play button -->
+    <path
+        android:fillColor="#55759F"
+        android:pathData="
+            M103,83.5
+            C101.8,82.8 100.8,83.6 100.8,85.1
+            L100.8,107.5
+            C100.8,109.1 101.9,110 103.2,109.2
+            L123.6,98
+            C125.5,96.9 125.5,95.2 123.6,94.2
+            Z" />
+
+    <!-- Left upper accent -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#48668F"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round"
+        android:pathData="M35,61 L46,69" />
+
+    <!-- Left lower accent -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#48668F"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round"
+        android:pathData="M35,92 L46,84" />
+
+    <!-- Right upper accent -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#48668F"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round"
+        android:pathData="M170,31 L178,22" />
+
+    <!-- Right middle accent -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#48668F"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round"
+        android:pathData="M178,46 L193,46" />
+
+</vector>
