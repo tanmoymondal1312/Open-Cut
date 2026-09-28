@@ -6,6 +6,9 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -13,8 +16,10 @@ import android.view.ScaleGestureDetector
 import android.view.View
 import android.widget.OverScroller
 import androidx.core.content.ContextCompat
+import java.util.LinkedHashSet
 import java.util.Locale
-import kotlin.math.abs
+import java.util.TreeMap
+import java.util.concurrent.Executors
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
@@ -26,25 +31,24 @@ class TimelineView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
-    private class Frame(val timeMs: Long, val bitmap: Bitmap)
+    private class Frame(val bitmap: Bitmap) {
+        var lastAccess: Long = 0L
+    }
 
     private val density = resources.displayMetrics.density
     private fun dp(value: Float): Float = value * density
 
-    private val frames = ArrayList<Frame>()
-
     private var durationMs = 0L
     private var pxPerMs = dp(0.12f)
     private var centerMs = 0L
+    private var labelStepMs = 1000L
 
-    private val floorZoom = dp(0.004f)
-    private val ceilZoom = dp(1.2f)
+    private val tileWidth = dp(48f)
 
     private val corner = dp(12f)
     private val pad = dp(6f)
     private val pillRow = dp(20f)
     private val rulerRow = dp(22f)
-    private val tileWidth = dp(64f)
 
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stripPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -53,6 +57,7 @@ class TimelineView @JvmOverloads constructor(
     private val separatorPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val placeholderPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val tickPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val minorTickPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val playheadPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val playheadGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -69,10 +74,10 @@ class TimelineView @JvmOverloads constructor(
                 if (durationMs <= 0L || width <= 0) return false
                 val focusX = detector.focusX
                 val timeAtFocus = timeAtX(focusX)
-                pxPerMs = (pxPerMs * detector.scaleFactor).coerceIn(minZoom(), maxZoom())
+                pxPerMs = (pxPerMs * detector.scaleFactor).coerceIn(loZoom(), hiZoom())
                 centerMs = (timeAtFocus - (focusX - width / 2f) / pxPerMs).toLong()
                 clampCenter()
-                invalidate()
+                refresh()
                 return true
             }
 
@@ -98,7 +103,7 @@ class TimelineView @JvmOverloads constructor(
                 if (durationMs <= 0L || scaleDetector.isInProgress) return false
                 centerMs = (centerMs + distanceX / pxPerMs).toLong()
                 clampCenter()
-                invalidate()
+                refresh()
                 return true
             }
 
@@ -125,6 +130,20 @@ class TimelineView @JvmOverloads constructor(
         }
     )
 
+    private val frameLock = Any()
+    private val frames = TreeMap<Long, Frame>()
+    private var frameBytes = 0
+    private val maxFrameBytes = 12 * 1024 * 1024
+
+    private val queue = LinkedHashSet<Long>()
+    private var workerRunning = false
+    private var inFlight = -1L
+
+    private val retrieverLock = Any()
+    private var retriever: MediaMetadataRetriever? = null
+    private val executor = Executors.newSingleThreadExecutor()
+    private var released = false
+
     init {
         bgPaint.color = ContextCompat.getColor(context, R.color.timeline_bg)
         stripPaint.color = ContextCompat.getColor(context, R.color.timeline_strip)
@@ -136,6 +155,9 @@ class TimelineView @JvmOverloads constructor(
         placeholderPaint.color = ContextCompat.getColor(context, R.color.timeline_placeholder)
         tickPaint.color = ContextCompat.getColor(context, R.color.timeline_tick)
         tickPaint.strokeWidth = dp(1.5f)
+        minorTickPaint.color = ContextCompat.getColor(context, R.color.timeline_tick)
+        minorTickPaint.strokeWidth = dp(1f)
+        minorTickPaint.alpha = 140
         labelPaint.color = ContextCompat.getColor(context, R.color.timeline_label)
         labelPaint.textSize = dp(9f)
         labelPaint.textAlign = Paint.Align.CENTER
@@ -152,41 +174,79 @@ class TimelineView @JvmOverloads constructor(
         handlePaint.color = ContextCompat.getColor(context, R.color.timeline_playhead)
     }
 
+    fun setVideoUri(uri: Uri) {
+        synchronized(frameLock) {
+            queue.clear()
+            frames.clear()
+            frameBytes = 0
+            durationMs = 0L
+        }
+        executor.execute {
+            if (released) return@execute
+            var fresh: MediaMetadataRetriever? = null
+            try {
+                fresh = MediaMetadataRetriever()
+                fresh.setDataSource(context, uri)
+                val duration = fresh
+                    .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.toLongOrNull() ?: 0L
+                synchronized(retrieverLock) {
+                    try {
+                        retriever?.release()
+                    } catch (ignored: Exception) {
+                    }
+                    retriever = fresh
+                    fresh = null
+                }
+                post {
+                    if (!released) setDuration(duration)
+                }
+            } catch (error: Exception) {
+                try {
+                    fresh?.release()
+                } catch (ignored: Exception) {
+                }
+            }
+        }
+    }
+
     fun setDuration(ms: Long) {
         durationMs = ms
         centerMs = 0L
-        pxPerMs = pxPerMs.coerceIn(minZoom(), maxZoom())
+        pxPerMs = pxPerMs.coerceIn(loZoom(), hiZoom())
         clampCenter()
-        invalidate()
+        refresh()
     }
 
-    fun addFrame(timeMs: Long, bitmap: Bitmap) {
-        var index = frames.size
-        for (i in frames.indices) {
-            if (frames[i].timeMs > timeMs) {
-                index = i
-                break
+    fun release() {
+        released = true
+        executor.shutdownNow()
+        synchronized(retrieverLock) {
+            try {
+                retriever?.release()
+            } catch (ignored: Exception) {
             }
+            retriever = null
         }
-        frames.add(index, Frame(timeMs, bitmap))
-        invalidate()
-    }
-
-    fun clearFrames() {
-        frames.clear()
-        invalidate()
+        synchronized(frameLock) {
+            queue.clear()
+            frames.clear()
+            frameBytes = 0
+        }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        pxPerMs = pxPerMs.coerceIn(minZoom(), maxZoom())
+        pxPerMs = pxPerMs.coerceIn(loZoom(), hiZoom())
         clampCenter()
+        scheduleFrames()
     }
 
     override fun computeScroll() {
         if (scroller.computeScrollOffset()) {
             centerMs = scroller.currX.toLong()
             clampCenter()
+            scheduleFrames()
             postInvalidateOnAnimation()
         }
     }
@@ -207,7 +267,7 @@ class TimelineView @JvmOverloads constructor(
         canvas.save()
         canvas.clipRect(pad, pad, w - pad, h - pad)
 
-        val stripRect = RectF(pad, pad + pillRow + rulerRow, w - pad, h - pad)
+        val stripRect = stripRect()
         canvas.drawRoundRect(stripRect, dp(6f), dp(6f), stripPaint)
         drawFrames(canvas, stripRect)
         drawRuler(canvas, w, stripRect.top)
@@ -223,6 +283,11 @@ class TimelineView @JvmOverloads constructor(
             borderPaint
         )
     }
+
+    private fun stripRect(): RectF =
+        RectF(pad, pad + pillRow + rulerRow, width - pad, height - pad)
+
+    private fun stripHeight(): Float = height - 2f * pad - pillRow - rulerRow
 
     private fun drawFrames(canvas: Canvas, stripRect: RectF) {
         if (durationMs <= 0L || width <= 0 || pxPerMs <= 0f) return
@@ -242,9 +307,9 @@ class TimelineView @JvmOverloads constructor(
             val x = xForTime(timeMs)
             rect.set(x, stripRect.top, x + tileWidth, stripRect.bottom)
 
-            val frame = frameAt(timeMs)
-            if (frame != null) {
-                drawCover(canvas, frame.bitmap, rect)
+            val bitmap = frameBitmapAt(timeMs, chunkMs)
+            if (bitmap != null) {
+                drawCover(canvas, bitmap, rect)
             } else {
                 canvas.drawRect(rect, placeholderPaint)
             }
@@ -260,8 +325,10 @@ class TimelineView @JvmOverloads constructor(
     private fun drawRuler(canvas: Canvas, w: Float, stripTop: Float) {
         if (durationMs <= 0L || width <= 0 || pxPerMs <= 0f) return
         val step = rulerStepMs()
+        labelStepMs = step
         val baseline = stripTop - dp(3f)
         val labelY = baseline - dp(7f)
+        val spacing = step * pxPerMs
 
         val leftTime = timeAtX(pad)
         val rightTime = timeAtX(w - pad)
@@ -271,6 +338,13 @@ class TimelineView @JvmOverloads constructor(
                 val x = xForTime(t)
                 canvas.drawLine(x, baseline - dp(5f), x, baseline, tickPaint)
                 canvas.drawText(formatTime(t), x, labelY, labelPaint)
+                if (spacing >= dp(80f)) {
+                    val minor = t + step / 2
+                    if (minor in 0..durationMs) {
+                        val mx = xForTime(minor)
+                        canvas.drawLine(mx, baseline - dp(3f), mx, baseline, minorTickPaint)
+                    }
+                }
             }
             t += step
         }
@@ -322,18 +396,168 @@ class TimelineView @JvmOverloads constructor(
         canvas.drawBitmap(bitmap, null, RectF(dx, dy, dx + dw, dy + dh), bitmapPaint)
     }
 
-    private fun frameAt(timeMs: Long): Frame? {
-        if (frames.isEmpty()) return null
-        var best: Frame? = null
-        var bestDelta = Long.MAX_VALUE
-        for (frame in frames) {
-            val delta = abs(frame.timeMs - timeMs)
-            if (delta < bestDelta) {
-                bestDelta = delta
-                best = frame
+    private fun refresh() {
+        invalidate()
+        scheduleFrames()
+    }
+
+    private fun quantize(timeMs: Long): Long = (timeMs / GRID_MS) * GRID_MS
+
+    private fun visibleFrameTimes(): List<Long> {
+        if (durationMs <= 0L || width <= 0 || pxPerMs <= 0f) return emptyList()
+        val chunkMs = tileWidth / pxPerMs
+        if (chunkMs <= 0f) return emptyList()
+        val first = floor(timeAtX(pad) / chunkMs).toLong()
+        val last = ceil(timeAtX(width - pad) / chunkMs).toLong()
+        val times = ArrayList<Long>()
+        var index = first
+        while (index <= last) {
+            val timeMs = (index * chunkMs).toLong()
+            val key = quantize(timeMs)
+            if (key in 0..durationMs && !times.contains(key)) times.add(key)
+            index++
+        }
+        return times
+    }
+
+    private fun scheduleFrames() {
+        if (released) return
+        val wanted = visibleFrameTimes()
+        var startWorker = false
+        synchronized(frameLock) {
+            queue.clear()
+            for (time in wanted) {
+                if (time != inFlight && frames[time] == null) queue.add(time)
+            }
+            if (!workerRunning && queue.isNotEmpty()) {
+                workerRunning = true
+                startWorker = true
             }
         }
-        return best
+        if (startWorker) executor.execute { workerLoop() }
+    }
+
+    private fun workerLoop() {
+        while (!released) {
+            val time = synchronized(frameLock) {
+                val iterator = queue.iterator()
+                if (!iterator.hasNext()) {
+                    workerRunning = false
+                    null
+                } else {
+                    val next = iterator.next()
+                    iterator.remove()
+                    inFlight = next
+                    next
+                }
+            } ?: break
+
+            val bitmap = decodeFrame(time)
+            synchronized(frameLock) {
+                inFlight = -1L
+            }
+            if (bitmap != null && !released) {
+                putFrame(time, bitmap)
+                postInvalidate()
+            }
+        }
+        synchronized(frameLock) {
+            workerRunning = false
+        }
+    }
+
+    private fun decodeFrame(timeMs: Long): Bitmap? {
+        synchronized(retrieverLock) {
+            if (released) return null
+            val source = try {
+                retriever?.getFrameAtTime(
+                    timeMs * 1000,
+                    MediaMetadataRetriever.OPTION_CLOSEST
+                )
+            } catch (error: Exception) {
+                null
+            } ?: return null
+            return cropToTile(source)
+        }
+    }
+
+    private fun cropToTile(source: Bitmap): Bitmap {
+        val tileHeight = stripHeight()
+        if (tileHeight <= 0f || source.width <= 0 || source.height <= 0) return source
+        val targetHeight = max(64, (tileHeight / 2f).toInt())
+        val targetWidth = max(1, (targetHeight * (tileWidth / tileHeight)).toInt())
+
+        val scale = max(
+            targetWidth.toFloat() / source.width,
+            targetHeight.toFloat() / source.height
+        )
+        val cropWidth = min(source.width, max(1, (targetWidth / scale).toInt()))
+        val cropHeight = min(source.height, max(1, (targetHeight / scale).toInt()))
+        val left = (source.width - cropWidth) / 2
+        val top = (source.height - cropHeight) / 2
+
+        val cropped = Bitmap.createBitmap(source, left, top, cropWidth, cropHeight)
+        val output = if (cropped.width == targetWidth && cropped.height == targetHeight) {
+            cropped
+        } else {
+            Bitmap.createScaledBitmap(cropped, targetWidth, targetHeight, true)
+        }
+        if (cropped !== source && cropped !== output) cropped.recycle()
+        if (source !== output) source.recycle()
+        return output
+    }
+
+    private fun putFrame(key: Long, bitmap: Bitmap) {
+        val size = bitmap.allocationByteCount
+        synchronized(frameLock) {
+            frames[key]?.let { frameBytes -= it.bitmap.allocationByteCount }
+            val frame = Frame(bitmap)
+            frame.lastAccess = SystemClock.elapsedRealtime()
+            frames[key] = frame
+            frameBytes += size
+            evictFrames()
+        }
+    }
+
+    private fun evictFrames() {
+        while (frameBytes > maxFrameBytes && frames.size > 1) {
+            var victim: MutableMap.MutableEntry<Long, Frame>? = null
+            for (entry in frames.entries) {
+                if (victim == null || entry.value.lastAccess < victim.value.lastAccess) {
+                    victim = entry
+                }
+            }
+            val target = victim ?: break
+            frameBytes -= target.value.bitmap.allocationByteCount
+            frames.remove(target.key)
+        }
+    }
+
+    private fun frameBitmapAt(timeMs: Long, chunkMs: Float): Bitmap? {
+        val key = quantize(timeMs)
+        val tolerance = max(chunkMs.toLong(), GRID_MS)
+        val now = SystemClock.elapsedRealtime()
+        synchronized(frameLock) {
+            frames[key]?.let {
+                it.lastAccess = now
+                return it.bitmap
+            }
+            val ceiling = frames.ceilingEntry(key)
+            val floorEntry = frames.floorEntry(key)
+            var candidate: Frame? = null
+            var distance = Long.MAX_VALUE
+            if (ceiling != null && ceiling.key - key < distance) {
+                distance = ceiling.key - key
+                candidate = ceiling.value
+            }
+            if (floorEntry != null && key - floorEntry.key < distance) {
+                distance = key - floorEntry.key
+                candidate = floorEntry.value
+            }
+            if (candidate == null || distance > tolerance) return null
+            candidate.lastAccess = now
+            return candidate.bitmap
+        }
     }
 
     private fun timeAtX(x: Float): Long = (centerMs + (x - width / 2f) / pxPerMs).toLong()
@@ -342,12 +566,13 @@ class TimelineView @JvmOverloads constructor(
 
     private fun xForTime(timeMs: Long): Float = xForTime(timeMs.toFloat())
 
-    private fun minZoom(): Float {
-        if (durationMs <= 0L || width <= 0) return floorZoom
-        return max(floorZoom, (width * 0.85f) / durationMs)
-    }
+    private fun hiZoom(): Float = tileWidth / GRID_MS
 
-    private fun maxZoom(): Float = ceilZoom
+    private fun loZoom(): Float {
+        if (durationMs <= 0L || width <= 0) return dp(0.004f)
+        val fit = (width * 0.9f) / durationMs
+        return max(dp(0.0004f), min(fit, hiZoom()))
+    }
 
     private fun clampCenter() {
         if (durationMs <= 0L) {
@@ -368,16 +593,27 @@ class TimelineView @JvmOverloads constructor(
     private fun rulerStepMs(): Long {
         val candidates = longArrayOf(
             100, 200, 500, 1000, 2000, 5000, 10000, 15000,
-            30000, 60000, 120000, 300000, 600000
+            30000, 60000, 120000, 300000, 600000, 1800000, 3600000
         )
         for (candidate in candidates) {
-            if (candidate * pxPerMs >= dp(76f)) return candidate
+            if (candidate * pxPerMs >= dp(40f)) return candidate
         }
         return candidates[candidates.size - 1]
     }
 
     private fun formatTime(ms: Long): String {
-        val totalSeconds = ms.coerceAtLeast(0L) / 1000
+        val value = ms.coerceAtLeast(0L)
+        if (labelStepMs < 1000L) {
+            val tenths = (value + 50L) / 100L
+            val whole = tenths / 10
+            val fraction = tenths % 10
+            return if (fraction == 0L) whole.toString() else "$whole.$fraction"
+        }
+        val totalSeconds = value / 1000
         return String.format(Locale.US, "%02d:%02d", totalSeconds / 60, totalSeconds % 60)
+    }
+
+    companion object {
+        private const val GRID_MS = 100L
     }
 }

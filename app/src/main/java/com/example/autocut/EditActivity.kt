@@ -1,7 +1,5 @@
 ﻿package com.example.autocut
 
-import android.graphics.Bitmap
-import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -18,7 +16,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import java.util.concurrent.Executors
 import kotlin.math.min
 
 class EditActivity : AppCompatActivity() {
@@ -28,7 +25,6 @@ class EditActivity : AppCompatActivity() {
     private lateinit var seekBar: SeekBar
     private lateinit var btnPlayPause: ImageView
     private lateinit var timeline: TimelineView
-    private val executor = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
     private var prepared = false
     private var seeking = false
@@ -83,7 +79,7 @@ class EditActivity : AppCompatActivity() {
             return
         }
         preparePlayer(uri)
-        extractThumbnails(uri)
+        timeline.setVideoUri(uri)
     }
 
     private fun wirePlayerControls() {
@@ -223,65 +219,6 @@ class EditActivity : AppCompatActivity() {
         videoView.layoutParams = params
     }
 
-    private fun extractThumbnails(uri: Uri) {
-        executor.execute {
-            var retriever: MediaMetadataRetriever? = null
-            try {
-                retriever = MediaMetadataRetriever()
-                retriever.setDataSource(this, uri)
-                val duration = retriever
-                    .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                    ?.toLongOrNull() ?: 0L
-
-                runOnUiThread {
-                    if (!isFinishing && !isDestroyed) timeline.setDuration(duration)
-                }
-
-                if (duration <= 0L) return@execute
-                val count = (duration / 800).coerceIn(6, 48).toInt()
-                val targetHeight = 140
-
-                for (index in 0 until count) {
-                    if (Thread.currentThread().isInterrupted) return@execute
-                    val timeMs = duration * index / count
-                    val source = try {
-                        retriever.getFrameAtTime(
-                            timeMs,
-                            MediaMetadataRetriever.OPTION_CLOSEST_SYNC
-                        )
-                    } catch (error: RuntimeException) {
-                        null
-                    } ?: continue
-
-                    val thumbnail = if (source.height > targetHeight) {
-                        val ratio = targetHeight.toFloat() / source.height
-                        val scaled = Bitmap.createScaledBitmap(
-                            source,
-                            maxOf(1, (source.width * ratio).toInt()),
-                            targetHeight,
-                            true
-                        )
-                        if (scaled != source) source.recycle()
-                        scaled
-                    } else {
-                        source
-                    }
-
-                    runOnUiThread {
-                        if (!isFinishing && !isDestroyed) timeline.addFrame(timeMs, thumbnail)
-                    }
-                }
-            } catch (error: Exception) {
-                // Unsupported or revoked URI â€” timeline simply stays empty.
-            } finally {
-                try {
-                    retriever?.release()
-                } catch (ignored: Exception) {
-                }
-            }
-        }
-    }
-
     override fun onResume() {
         super.onResume()
         if (prepared) {
@@ -300,7 +237,7 @@ class EditActivity : AppCompatActivity() {
     override fun onDestroy() {
         handler.removeCallbacks(progressTicker)
         handler.removeCallbacks(hideControlsRunnable)
-        executor.shutdownNow()
+        timeline.release()
         videoView.stopPlayback()
         super.onDestroy()
     }
