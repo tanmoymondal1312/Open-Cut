@@ -16,4 +16,7 @@
     <string name="video_preview">Video preview</string>
     <string name="timeline_desc">Video timeline</string>
     <string name="video_error">Unable to play this video</string>
+    <string name="play_video">Play</string>
+    <string name="pause_video">Pause</string>
+    <string name="seek_video">Seek video</string>
 </resources>

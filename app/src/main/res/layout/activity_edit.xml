@@ -52,6 +52,32 @@
                 android:layout_height="1dp"
                 android:layout_gravity="bottom"
                 android:background="@color/preview_edge" />
+
+            <SeekBar
+                android:id="@+id/seekBar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom"
+                android:layout_marginStart="18dp"
+                android:layout_marginEnd="18dp"
+                android:layout_marginBottom="18dp"
+                android:contentDescription="@string/seek_video"
+                android:max="1000"
+                android:progressBackgroundTint="@color/stroke_20"
+                android:progressTint="@color/white"
+                android:splitTrack="false"
+                android:thumbTint="@color/white" />
+
+            <ImageView
+                android:id="@+id/btnPlayPause"
+                android:layout_width="58dp"
+                android:layout_height="58dp"
+                android:layout_gravity="center"
+                android:background="@drawable/bg_player_btn"
+                android:contentDescription="@string/play_video"
+                android:padding="16dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_pause" />
         </FrameLayout>
 
         <!-- ================= TIMELINE ================= -->
@@ -162,7 +188,7 @@
                     android:layout_height="26dp"
                     android:contentDescription="@string/nav_home"
                     android:src="@drawable/ic_home"
-                    android:tint="@color/nav_inactive" />
+                    app:tint="@color/nav_inactive" />
 
                 <TextView
                     android:id="@+id/tvNavHome"
@@ -188,7 +214,7 @@
                     android:layout_height="26dp"
                     android:contentDescription="@string/nav_edit"
                     android:src="@drawable/ic_scissors"
-                    android:tint="@color/accent_cyan" />
+                    app:tint="@color/accent_cyan" />
 
                 <TextView
                     android:id="@+id/tvNavEdit"

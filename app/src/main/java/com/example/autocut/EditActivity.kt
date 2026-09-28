@@ -4,9 +4,13 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.SeekBar
 import android.widget.Toast
 import android.widget.VideoView
 import androidx.activity.enableEdgeToEdge
@@ -21,11 +25,22 @@ class EditActivity : AppCompatActivity() {
 
     private lateinit var videoView: VideoView
     private lateinit var previewContainer: FrameLayout
+    private lateinit var seekBar: SeekBar
+    private lateinit var btnPlayPause: ImageView
     private lateinit var timeline: TimelineView
     private val executor = Executors.newSingleThreadExecutor()
+    private val handler = Handler(Looper.getMainLooper())
     private var prepared = false
+    private var seeking = false
     private var videoWidth = 0
     private var videoHeight = 0
+
+    private val progressTicker = object : Runnable {
+        override fun run() {
+            updateSeekBar()
+            handler.postDelayed(this, 250L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
@@ -35,6 +50,8 @@ class EditActivity : AppCompatActivity() {
 
         videoView = findViewById(R.id.videoView)
         previewContainer = findViewById(R.id.previewContainer)
+        seekBar = findViewById(R.id.seekBar)
+        btnPlayPause = findViewById(R.id.btnPlayPause)
         timeline = findViewById(R.id.timeline)
 
         val main = findViewById<View>(R.id.main)
@@ -55,6 +72,7 @@ class EditActivity : AppCompatActivity() {
         }
 
         findViewById<View>(R.id.navHome).setOnClickListener { finish() }
+        wirePlayerControls()
 
         val uri = intent.data
         if (uri == null) {
@@ -63,6 +81,55 @@ class EditActivity : AppCompatActivity() {
         }
         preparePlayer(uri)
         extractThumbnails(uri)
+    }
+
+    private fun wirePlayerControls() {
+        previewContainer.setOnClickListener { togglePlayPause() }
+        btnPlayPause.setOnClickListener { togglePlayPause() }
+        seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (!fromUser || !prepared) return
+                val duration = videoView.duration
+                if (duration <= 0) return
+                videoView.seekTo((progress.toLong() * duration / 1000L).toInt())
+            }
+
+            override fun onStartTrackingTouch(bar: SeekBar) {
+                seeking = true
+            }
+
+            override fun onStopTrackingTouch(bar: SeekBar) {
+                seeking = false
+                updateSeekBar()
+            }
+        })
+        syncPlayerControls()
+    }
+
+    private fun togglePlayPause() {
+        if (!prepared) return
+        if (videoView.isPlaying) {
+            videoView.pause()
+        } else {
+            videoView.start()
+        }
+        syncPlayerControls()
+    }
+
+    private fun syncPlayerControls() {
+        val playing = prepared && videoView.isPlaying
+        btnPlayPause.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
+        btnPlayPause.contentDescription =
+            getString(if (playing) R.string.pause_video else R.string.play_video)
+        handler.removeCallbacks(progressTicker)
+        if (playing) handler.post(progressTicker)
+    }
+
+    private fun updateSeekBar() {
+        if (!prepared || seeking) return
+        val duration = videoView.duration
+        if (duration <= 0) return
+        seekBar.progress = (videoView.currentPosition.toLong() * 1000L / duration).toInt()
     }
 
     private fun preparePlayer(uri: Uri) {
@@ -74,6 +141,7 @@ class EditActivity : AppCompatActivity() {
             }
             fitPreviewToVideo(mediaPlayer.videoWidth, mediaPlayer.videoHeight)
             videoView.start()
+            syncPlayerControls()
         }
         videoView.setOnErrorListener { _, _, _ ->
             Toast.makeText(this, R.string.video_error, Toast.LENGTH_SHORT).show()
@@ -166,15 +234,20 @@ class EditActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (prepared) videoView.start()
+        if (prepared) {
+            videoView.start()
+            syncPlayerControls()
+        }
     }
 
     override fun onPause() {
         if (prepared) videoView.pause()
+        handler.removeCallbacks(progressTicker)
         super.onPause()
     }
 
     override fun onDestroy() {
+        handler.removeCallbacks(progressTicker)
         executor.shutdownNow()
         videoView.stopPlayback()
         super.onDestroy()
