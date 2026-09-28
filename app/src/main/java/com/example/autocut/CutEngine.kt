@@ -47,7 +47,6 @@ class CutEngine(private val context: Context) {
                     ?.let { (it * 1000.0).toLong() }
                     ?.takeIf { it > 0L }
                     ?: fallbackDurationMs
-                val videoBitrate = pickVideoBitrate(probe)
                 val audioBitrate = pickAudioBitrate(probe)
 
                 val output = outputFile()
@@ -61,9 +60,10 @@ class CutEngine(private val context: Context) {
                     "-map_metadata", "-1",
                     "-map", "0:v:0",
                     "-map", "0:a:0?",
-                    "-c:v", "h264_mediacodec",
+                    "-c:v", "libx264",
+                    "-preset", "veryfast",
+                    "-crf", "18",
                     "-pix_fmt", "yuv420p",
-                    "-b:v", videoBitrate.toString(),
                     "-force_key_frames", "expr:gte(t,n_forced/3)",
                     "-c:a", "aac",
                     "-b:a", audioBitrate.toString(),
@@ -231,16 +231,6 @@ class CutEngine(private val context: Context) {
         return !cancelled
     }
 
-    private fun pickVideoBitrate(info: MediaInformation?): Long {
-        val streamBitrate = info?.streams
-            ?.firstOrNull { it.type == "video" }
-            ?.bitrate
-            ?.toLongOrNull()
-        val containerBitrate = info?.bitrate?.toLongOrNull()
-        val bitrate = streamBitrate ?: containerBitrate ?: DEFAULT_VIDEO_BITRATE
-        return bitrate.coerceIn(MIN_VIDEO_BITRATE, MAX_VIDEO_BITRATE)
-    }
-
     private fun pickAudioBitrate(info: MediaInformation?): Long {
         val bitrate = info?.streams
             ?.firstOrNull { it.type == "audio" }
@@ -254,9 +244,6 @@ class CutEngine(private val context: Context) {
 
     companion object {
         private const val TAG = "CutEngine"
-        private const val DEFAULT_VIDEO_BITRATE = 8_000_000L
-        private const val MIN_VIDEO_BITRATE = 500_000L
-        private const val MAX_VIDEO_BITRATE = 30_000_000L
         private const val DEFAULT_AUDIO_BITRATE = 160_000L
         private const val MIN_AUDIO_BITRATE = 64_000L
         private const val MAX_AUDIO_BITRATE = 320_000L
