@@ -33,6 +33,7 @@ import com.arthenica.ffmpegkit.FFmpegKitConfig
 import com.arthenica.ffmpegkit.FFprobeKit
 import com.arthenica.ffmpegkit.MediaInformation
 import java.io.File
+import java.lang.ref.WeakReference
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -130,6 +131,7 @@ class EditActivity : AppCompatActivity() {
             return
         }
         videoUri = uri
+        activeInstance = WeakReference(this)
         preparePlayer(uri)
         timeline.setVideoUri(uri)
         probeFrameRate(uri)
@@ -615,6 +617,7 @@ class EditActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        if (activeInstance?.get() === this) activeInstance = null
         handler.removeCallbacks(progressTicker)
         handler.removeCallbacks(hideControlsRunnable)
         engine.cancelCut()
@@ -626,6 +629,7 @@ class EditActivity : AppCompatActivity() {
     }
 
     companion object {
+        var activeInstance: WeakReference<EditActivity>? = null
         private const val CONTROLS_HIDE_MS = 3000L
         private const val DIALOG_DIM = 0.55f
         private const val DIALOG_WIDTH_FRACTION = 0.86f

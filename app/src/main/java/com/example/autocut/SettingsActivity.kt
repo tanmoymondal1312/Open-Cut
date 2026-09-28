@@ -67,12 +67,20 @@ class SettingsActivity : AppCompatActivity() {
             )
         }
         findViewById<View>(R.id.navEdit).setOnClickListener {
-            startActivity(
-                Intent(this, MainActivity::class.java).addFlags(
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            if (EditActivity.activeInstance?.get() != null) {
+                startActivity(
+                    Intent(this, EditActivity::class.java).addFlags(
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    )
                 )
-            )
-            startActivity(Intent(this, VideoPickerActivity::class.java))
+            } else {
+                startActivity(
+                    Intent(this, MainActivity::class.java).addFlags(
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    )
+                )
+                startActivity(Intent(this, VideoPickerActivity::class.java))
+            }
         }
 
         knownFps = AppSettings.lastVideoFps(this)
