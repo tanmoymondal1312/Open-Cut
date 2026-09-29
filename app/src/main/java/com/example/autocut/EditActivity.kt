@@ -14,7 +14,9 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.Window
 import android.widget.FrameLayout
@@ -39,6 +41,8 @@ import java.lang.ref.WeakReference
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 
 class EditActivity : AppCompatActivity() {
@@ -204,6 +208,67 @@ class EditActivity : AppCompatActivity() {
     }
 
     private fun wirePlayerControls() {
+        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        var downX = 0f
+        var downY = 0f
+        var dragStartMs = 0L
+        var draggingPreview = false
+        videoView.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x
+                    downY = event.y
+                    dragStartMs = videoView.currentPosition.toLong()
+                    draggingPreview = false
+                    handler.removeCallbacks(hideControlsRunnable)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.x - downX
+                    val dy = event.y - downY
+                    val duration = fallbackDurationMs()
+                    if (!draggingPreview && abs(dx) > touchSlop &&
+                        abs(dx) > abs(dy) && duration > 0L && prepared
+                    ) {
+                        draggingPreview = true
+                        seeking = true
+                        videoView.pause()
+                        syncPlayerControls()
+                    }
+                    if (draggingPreview && duration > 0L) {
+                        val span = max(view.width, 1)
+                        val deltaMs = (dx / span * duration).toLong()
+                        val target = (dragStartMs + deltaMs).coerceIn(0L, duration)
+                        videoView.seekTo(target.toInt())
+                        seekBar.progress = (target * 1000L / duration).toInt()
+                        updateClock(target, duration)
+                        true
+                    } else {
+                        false
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (draggingPreview) {
+                        draggingPreview = false
+                        seeking = false
+                        showControls()
+                        true
+                    } else {
+                        view.performClick()
+                    }
+                }
+                else -> false
+            }
+        }
+        videoView.isClickable = true
+        videoView.setOnClickListener {
+            if (controlsVisible) {
+                handler.removeCallbacks(hideControlsRunnable)
+                hideControls()
+            } else {
+                showControls()
+            }
+        }
         previewContainer.setOnClickListener {
             if (controlsVisible) {
                 handler.removeCallbacks(hideControlsRunnable)
