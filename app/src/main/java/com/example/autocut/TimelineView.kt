@@ -19,6 +19,7 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import android.view.ViewConfiguration
 import android.widget.OverScroller
 import androidx.interpolator.view.animation.FastOutSlowInInterpolator
 import androidx.core.content.ContextCompat
@@ -33,6 +34,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.TreeMap
 import java.util.concurrent.Executors
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
@@ -106,7 +108,15 @@ class TimelineView @JvmOverloads constructor(
     private var lastNotifiedFocus = Long.MIN_VALUE
     var onFocusChanged: (() -> Unit)? = null
     var onClipsSettled: (() -> Unit)? = null
+    var onSeekRequested: ((Long) -> Unit)? = null
     val isRemovalAnimating: Boolean get() = vanishAnimator != null
+
+    private var playheadX = -1f
+    private var draggingPlayhead = false
+    private var userTouching = false
+    private var flingActive = false
+    private var downX = 0f
+    private var downY = 0f
 
     private val scroller = OverScroller(context)
 
@@ -167,6 +177,7 @@ class TimelineView @JvmOverloads constructor(
                     0,
                     0
                 )
+                flingActive = true
                 postInvalidateOnAnimation()
                 return true
             }
@@ -371,9 +382,29 @@ class TimelineView @JvmOverloads constructor(
         return null
     }
 
-    fun focusMs(): Long = centerMs
+    fun focusMs(): Long {
+        if (durationMs <= 0L) return 0L
+        val x = if (playheadX >= 0f) playheadX else width / 2f
+        if (width <= 0 || pxPerMs <= 0f) return centerMs.coerceIn(0L, durationMs)
+        return timeAtX(x).coerceIn(0L, durationMs)
+    }
 
-    fun focusSourceMs(): Long = toSource(centerMs)
+    fun focusSourceMs(): Long = toSource(focusMs())
+
+    fun isUserTouching(): Boolean = userTouching || draggingPlayhead
+
+    fun followSourceTime(sourceMs: Long) {
+        if (durationMs <= 0L || width <= 0 || pxPerMs <= 0f) return
+        if (userTouching || draggingPlayhead) return
+        val rendered = toRendered(sourceMs) ?: return
+        val x = if (playheadX >= 0f) playheadX else width / 2f
+        val target = rendered - (x - width / 2f) / pxPerMs
+        val clamped = target.toLong().coerceIn(0L, durationMs)
+        if (clamped == centerMs) return
+        centerMs = clamped
+        clampCenter()
+        refresh()
+    }
 
     fun setCutMarks(timesMs: LongArray, appliedUpToMs: Long) {
         cutMarks = timesMs
@@ -476,6 +507,7 @@ class TimelineView @JvmOverloads constructor(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        if (playheadX < 0f && w > 0) playheadX = w / 2f
         pxPerMs = pxPerMs.coerceIn(loZoom(), hiZoom())
         clampCenter()
         scheduleFrames()
@@ -486,11 +518,75 @@ class TimelineView @JvmOverloads constructor(
             centerMs = scroller.currX.toLong()
             clampCenter()
             scheduleFrames()
-            postInvalidateOnAnimation()
+            invalidate()
+        } else if (flingActive) {
+            flingActive = false
+            refresh()
+            notifySeek()
         }
     }
 
+    private fun currentPlayheadX(): Float =
+        if (playheadX >= 0f) playheadX else width / 2f
+
+    private fun setPlayheadX(x: Float) {
+        if (width <= 0) return
+        val lo = pad + dp(4f)
+        val hi = width - pad - dp(4f)
+        val value = if (hi > lo) x.coerceIn(lo, hi) else x
+        if (value == playheadX) return
+        playheadX = value
+        refresh()
+    }
+
+    private fun notifySeek() {
+        val focus = focusSourceMs()
+        onSeekRequested?.invoke(focus)
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (durationMs > 0L && width > 0) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x
+                    downY = event.y
+                    userTouching = true
+                    scroller.forceFinished(true)
+                    draggingPlayhead = abs(event.x - currentPlayheadX()) <= dp(20f)
+                    if (draggingPlayhead) return true
+                }
+                MotionEvent.ACTION_MOVE -> if (draggingPlayhead) {
+                    setPlayheadX(event.x)
+                    notifySeek()
+                    return true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val wasDragging = draggingPlayhead
+                    draggingPlayhead = false
+                    userTouching = false
+                    if (wasDragging) {
+                        notifySeek()
+                        return true
+                    }
+                    val slop = ViewConfiguration.get(context).scaledTouchSlop
+                    val isTap = abs(event.x - downX) < slop && abs(event.y - downY) < slop
+                    if (isTap) {
+                        if (event.actionMasked == MotionEvent.ACTION_UP) {
+                            setPlayheadX(event.x)
+                            notifySeek()
+                        }
+                        return true
+                    }
+                    notifySeek()
+                }
+            }
+        } else if (
+            event.actionMasked == MotionEvent.ACTION_UP ||
+            event.actionMasked == MotionEvent.ACTION_CANCEL
+        ) {
+            userTouching = false
+            draggingPlayhead = false
+        }
         scaleDetector.onTouchEvent(event)
         gestureDetector.onTouchEvent(event)
         return true
@@ -650,7 +746,7 @@ class TimelineView @JvmOverloads constructor(
 
     private fun drawPlayhead(canvas: Canvas, w: Float, h: Float) {
         if (durationMs <= 0L || width <= 0) return
-        val x = w / 2f
+        val x = currentPlayheadX()
         val top = pad + pillRow / 2f
         val bottom = h - pad - dp(1f)
 
@@ -666,19 +762,20 @@ class TimelineView @JvmOverloads constructor(
             handlePaint
         )
 
-        val text = formatTime(centerMs)
+        val text = formatTime(focusMs())
         val pillW = max(pillTextPaint.measureText(text) + dp(20f), dp(52f))
         val pillH = dp(17f)
         val pillTop = pad + dp(9f)
+        val pillCx = x.coerceIn(pillW / 2f, w - pillW / 2f)
         canvas.drawRoundRect(
-            RectF(x - pillW / 2f, pillTop, x + pillW / 2f, pillTop + pillH),
+            RectF(pillCx - pillW / 2f, pillTop, pillCx + pillW / 2f, pillTop + pillH),
             pillH / 2f,
             pillH / 2f,
             pillPaint
         )
         canvas.drawText(
             text,
-            x,
+            pillCx,
             pillTop + pillH / 2f + pillTextPaint.textSize * 0.35f,
             pillTextPaint
         )
@@ -695,8 +792,9 @@ class TimelineView @JvmOverloads constructor(
     }
 
     private fun refresh() {
-        if (centerMs != lastNotifiedFocus) {
-            lastNotifiedFocus = centerMs
+        val focus = focusMs()
+        if (focus != lastNotifiedFocus) {
+            lastNotifiedFocus = focus
             onFocusChanged?.invoke()
         }
         invalidate()

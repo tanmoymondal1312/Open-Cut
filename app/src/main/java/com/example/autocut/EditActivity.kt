@@ -95,8 +95,18 @@ class EditActivity : AppCompatActivity() {
     private val progressTicker = object : Runnable {
         override fun run() {
             updateSeekBar()
-            handler.postDelayed(this, 250L)
+            followTimeline()
+            handler.postDelayed(this, 60L)
         }
+    }
+
+    private fun followTimeline() {
+        if (!prepared || seeking) return
+        if (!videoView.isPlaying) return
+        val duration = fallbackDurationMs()
+        if (duration <= 0L) return
+        val position = videoView.currentPosition.toLong().coerceIn(0L, duration)
+        timeline.followSourceTime(position)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -367,6 +377,17 @@ class EditActivity : AppCompatActivity() {
         updateClock(position, duration.toLong())
     }
 
+    private fun seekVideoTo(ms: Long) {
+        if (!prepared) return
+        val duration = fallbackDurationMs()
+        val target = if (duration > 0L) ms.coerceIn(0L, duration) else ms.coerceAtLeast(0L)
+        videoView.seekTo(target.toInt())
+        if (duration > 0L) {
+            seekBar.progress = (target * 1000L / duration).toInt()
+            updateClock(target, duration)
+        }
+    }
+
     private fun updateClock(positionMs: Long, durationMs: Long) {
         tvTime.text = getString(
             R.string.player_time,
@@ -468,6 +489,7 @@ class EditActivity : AppCompatActivity() {
     private fun wireClipControls() {
         timeline.onFocusChanged = { refreshClipUi() }
         timeline.onClipsSettled = { refreshClipUi() }
+        timeline.onSeekRequested = { ms -> seekVideoTo(ms) }
         btnClipSplit.setOnClickListener { onClipSplit() }
         btnClipDelete.setOnClickListener { onClipDelete() }
         btnClipUndo.setOnClickListener { onClipUndo() }
