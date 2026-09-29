@@ -256,7 +256,10 @@ class CutEngine(private val context: Context) {
                 val select = ranges.joinToString("+") { range ->
                     "between(t," + (range.startMs / 1000.0) + "," + (range.endMs / 1000.0) + ")"
                 }
-                audioArguments += listOf("-filter:a", select + ",asetpts=N/SR/TB")
+                audioArguments += listOf(
+                    "-filter:a",
+                    "aselect='" + select + "',asetpts=N/SR/TB"
+                )
             }
             audioArguments += listOf(
                 "-map", "0:a:0",
