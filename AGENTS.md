@@ -15,6 +15,8 @@ After **every** file edit made during a session, make a valid commit and push to
 - Requires JDK: `C:\Program Files\Android\Android Studio\jbr` (set `JAVA_HOME`)
 - Build: `.\gradlew.bat assembleDebug`
 - Lint check: `.\gradlew.bat lintDebug`
+- adb is not on PATH — use `C:\Users\tanmo\AppData\Local\Android\Sdk\platform-tools\adb.exe`
+  (emulator `192.168.56.101:5555`, always `-s`, wake with `input keyevent 224`)
 
 ## Project conventions
 
