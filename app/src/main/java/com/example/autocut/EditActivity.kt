@@ -362,6 +362,7 @@ class EditActivity : AppCompatActivity() {
 
     private fun wireClipControls() {
         timeline.onFocusChanged = { refreshClipUi() }
+        timeline.onClipsSettled = { refreshClipUi() }
         btnClipSplit.setOnClickListener { onClipSplit() }
         btnClipDelete.setOnClickListener { onClipDelete() }
         btnClipUndo.setOnClickListener { onClipUndo() }
@@ -369,8 +370,8 @@ class EditActivity : AppCompatActivity() {
     }
 
     private fun onClipSplit() {
-        if (cutBusy()) return
-        val at = timeline.focusMs()
+        if (clipBusy()) return
+        val at = timeline.focusSourceMs()
         if (clipModel.activeIndexAt(at) < 0) {
             Toast.makeText(this, R.string.clip_split_none, Toast.LENGTH_SHORT).show()
         } else if (!clipModel.splitAt(at)) {
@@ -381,18 +382,23 @@ class EditActivity : AppCompatActivity() {
     }
 
     private fun onClipDelete() {
-        if (cutBusy()) return
-        val at = timeline.focusMs()
+        if (clipBusy()) return
+        val at = timeline.focusSourceMs()
         if (clipModel.count <= 1) {
             Toast.makeText(this, R.string.clip_last, Toast.LENGTH_SHORT).show()
-        } else if (clipModel.deleteAt(at)) {
+            return
+        }
+        val active = clipModel.activeIndexAt(at)
+        if (active < 0) return
+        val vanished = clipModel.kept[active]
+        if (clipModel.deleteAt(at)) {
             Toast.makeText(this, R.string.clip_deleted_toast, Toast.LENGTH_SHORT).show()
-            refreshClipUi()
+            timeline.animateRemoval(vanished, clipModel.kept.toList())
         }
     }
 
     private fun onClipUndo() {
-        if (cutBusy()) return
+        if (clipBusy()) return
         if (clipModel.undo()) {
             refreshClipUi()
         } else {
@@ -403,11 +409,13 @@ class EditActivity : AppCompatActivity() {
     private fun cutBusy(): Boolean =
         cutState == CutState.CUTTING || cutState == CutState.EXPORTING
 
+    private fun clipBusy(): Boolean = cutBusy() || timeline.isRemovalAnimating
+
     private fun refreshClipUi() {
-        if (cutBusy()) return
-        val at = timeline.focusMs()
+        if (clipBusy()) return
+        val at = timeline.focusSourceMs()
         val active = clipModel.activeIndexAt(at)
-        timeline.setClips(clipModel.kept, active)
+        timeline.setClips(clipModel.kept.toList(), active)
         tvClipInfo.text = when {
             clipModel.count <= 1 -> getString(R.string.clip_info_one)
             active < 0 -> getString(R.string.clip_info_none)

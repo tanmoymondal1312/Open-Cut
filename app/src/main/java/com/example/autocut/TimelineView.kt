@@ -1,5 +1,8 @@
 ﻿package com.example.autocut
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -15,6 +18,7 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import android.widget.OverScroller
+import androidx.interpolator.view.animation.FastOutSlowInInterpolator
 import androidx.core.content.ContextCompat
 import java.util.LinkedHashSet
 import java.util.Locale
@@ -39,6 +43,7 @@ class TimelineView @JvmOverloads constructor(
     private fun dp(value: Float): Float = value * density
 
     private var durationMs = 0L
+    private var sourceDurationMs = 0L
     private var pxPerMs = dp(0.12f)
     private var centerMs = 0L
     private var labelStepMs = 1000L
@@ -73,11 +78,26 @@ class TimelineView @JvmOverloads constructor(
     private var cutMarks = LongArray(0)
     private var cutAppliedMs = Long.MIN_VALUE
 
+    private class Segment(
+        val srcStart: Long,
+        val srcEnd: Long,
+        val renderStart: Long,
+        val renderEnd: Long,
+        val clipIndex: Int,
+        val vanish: Boolean
+    )
+
     private var clipRanges: List<ClipRange> = emptyList()
     private var activeClipIndex = -1
     private var clipsActive = false
+    private var segments: List<Segment> = emptyList()
+    private var vanishing: ClipRange? = null
+    private var vanishProgress = 0f
+    private var vanishAnimator: ValueAnimator? = null
     private var lastNotifiedFocus = Long.MIN_VALUE
-    var onFocusChanged: ((Long) -> Unit)? = null
+    var onFocusChanged: (() -> Unit)? = null
+    var onClipsSettled: (() -> Unit)? = null
+    val isRemovalAnimating: Boolean get() = vanishAnimator != null
 
     private val scroller = OverScroller(context)
 
@@ -198,21 +218,144 @@ class TimelineView @JvmOverloads constructor(
     }
 
     fun setClips(ranges: List<ClipRange>, activeIndex: Int) {
+        cancelRemoval()
         clipRanges = ranges
         activeClipIndex = activeIndex
         clipsActive = ranges.isNotEmpty() &&
-            !(ranges.size == 1 && ranges[0].startMs == 0L && ranges[0].endMs >= durationMs)
+            !(ranges.size == 1 && ranges[0].startMs == 0L && ranges[0].endMs >= sourceDurationMs)
+        rebuildLayout()
         invalidate()
     }
 
     fun clearClips() {
+        cancelRemoval()
         clipRanges = emptyList()
         activeClipIndex = -1
         clipsActive = false
+        rebuildLayout()
         invalidate()
     }
 
+    fun animateRemoval(vanished: ClipRange, ranges: List<ClipRange>, activeIndex: Int = -1) {
+        cancelRemoval()
+        clipRanges = ranges
+        activeClipIndex = activeIndex
+        clipsActive = ranges.isNotEmpty() &&
+            !(ranges.size == 1 && ranges[0].startMs == 0L && ranges[0].endMs >= sourceDurationMs)
+        vanishing = vanished
+        vanishProgress = 0f
+        rebuildLayout()
+        clampCenter()
+        refresh()
+        val anim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = REMOVE_ANIM_MS
+            interpolator = FastOutSlowInInterpolator()
+            addUpdateListener {
+                vanishProgress = it.animatedValue as Float
+                rebuildLayout()
+                clampCenter()
+                refresh()
+            }
+        }
+        anim.addListener(object : AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: Animator) {
+                if (vanishAnimator !== animation) return
+                vanishAnimator = null
+                vanishing = null
+                vanishProgress = 0f
+                rebuildLayout()
+                clampCenter()
+                refresh()
+                onClipsSettled?.invoke()
+            }
+        })
+        vanishAnimator = anim
+        anim.start()
+    }
+
+    private fun cancelRemoval() {
+        val anim = vanishAnimator ?: return
+        vanishAnimator = null
+        vanishing = null
+        vanishProgress = 0f
+        anim.cancel()
+    }
+
+    private fun rebuildLayout() {
+        if (clipRanges.isEmpty() && vanishing == null) {
+            segments = if (sourceDurationMs > 0L) {
+                listOf(Segment(0L, sourceDurationMs, 0L, sourceDurationMs, -1, false))
+            } else {
+                emptyList()
+            }
+            durationMs = sourceDurationMs
+            return
+        }
+        val items = ArrayList<Segment>()
+        var render = 0L
+        var vanishInserted = vanishing == null
+        for ((index, clip) in clipRanges.withIndex()) {
+            val vanished = vanishing
+            if (!vanishInserted && vanished != null && clip.startMs >= vanished.endMs) {
+                val width = vanishWidth(vanished)
+                items.add(Segment(vanished.startMs, vanished.endMs, render, render + width, -1, true))
+                render += width
+                vanishInserted = true
+            }
+            items.add(
+                Segment(
+                    clip.startMs,
+                    clip.endMs,
+                    render,
+                    render + (clip.endMs - clip.startMs),
+                    index,
+                    false
+                )
+            )
+            render += clip.endMs - clip.startMs
+        }
+        val trailing = vanishing
+        if (!vanishInserted && trailing != null) {
+            val width = vanishWidth(trailing)
+            items.add(Segment(trailing.startMs, trailing.endMs, render, render + width, -1, true))
+            render += width
+        }
+        segments = items
+        durationMs = render
+    }
+
+    private fun vanishWidth(vanished: ClipRange): Long =
+        ((vanished.endMs - vanished.startMs) * (1f - vanishProgress)).toLong().coerceAtLeast(0L)
+
+    private fun toSource(renderedMs: Long): Long {
+        if (segments.isEmpty()) return renderedMs.coerceAtLeast(0L)
+        val time = renderedMs.coerceIn(0L, durationMs)
+        for (segment in segments) {
+            if (segment.renderEnd > segment.renderStart && time < segment.renderEnd) {
+                val span = segment.renderEnd - segment.renderStart
+                val fraction = (time - segment.renderStart).toFloat() / span
+                val sourceSpan = segment.srcEnd - segment.srcStart
+                return segment.srcStart + (sourceSpan * fraction).toLong().coerceIn(0L, sourceSpan)
+            }
+        }
+        return segments.last().srcEnd
+    }
+
+    private fun toRendered(sourceMs: Long): Long? {
+        for (segment in segments) {
+            val sourceSpan = segment.srcEnd - segment.srcStart
+            if (sourceSpan > 0L && sourceMs >= segment.srcStart && sourceMs < segment.srcEnd) {
+                val fraction = (sourceMs - segment.srcStart).toFloat() / sourceSpan
+                return segment.renderStart +
+                    ((segment.renderEnd - segment.renderStart) * fraction).toLong()
+            }
+        }
+        return null
+    }
+
     fun focusMs(): Long = centerMs
+
+    fun focusSourceMs(): Long = toSource(centerMs)
 
     fun setCutMarks(timesMs: LongArray, appliedUpToMs: Long) {
         cutMarks = timesMs
@@ -232,11 +375,13 @@ class TimelineView @JvmOverloads constructor(
     }
 
     fun setVideoUri(uri: Uri) {
+        cancelRemoval()
+        sourceDurationMs = 0L
+        rebuildLayout()
         synchronized(frameLock) {
             queue.clear()
             frames.clear()
             frameBytes = 0
-            durationMs = 0L
         }
         executor.execute {
             if (released) return@execute
@@ -268,7 +413,9 @@ class TimelineView @JvmOverloads constructor(
     }
 
     fun setDuration(ms: Long) {
-        durationMs = ms
+        cancelRemoval()
+        sourceDurationMs = ms
+        rebuildLayout()
         centerMs = 0L
         pxPerMs = pxPerMs.coerceIn(loZoom(), hiZoom())
         clampCenter()
@@ -276,6 +423,7 @@ class TimelineView @JvmOverloads constructor(
     }
 
     fun release() {
+        cancelRemoval()
         released = true
         executor.shutdownNow()
         synchronized(retrieverLock) {
@@ -366,7 +514,7 @@ class TimelineView @JvmOverloads constructor(
             val x = xForTime(timeMs)
             rect.set(x, stripRect.top, x + tileWidth, stripRect.bottom)
 
-            val bitmap = frameBitmapAt(timeMs, chunkMs)
+            val bitmap = frameBitmapAt(toSource(timeMs), chunkMs)
             if (bitmap != null) {
                 drawCover(canvas, bitmap, rect)
             } else {
@@ -382,49 +530,38 @@ class TimelineView @JvmOverloads constructor(
     }
 
     private fun drawClipOverlay(canvas: Canvas, stripRect: RectF) {
-        if (!clipsActive || durationMs <= 0L || width <= 0 || pxPerMs <= 0f) return
+        if (vanishing == null && !clipsActive) return
+        if (durationMs <= 0L || width <= 0 || pxPerMs <= 0f) return
         canvas.save()
         canvas.clipRect(stripRect)
 
-        var cursor = 0L
         val rect = RectF()
-        for (clip in clipRanges) {
-            if (clip.startMs > cursor) {
+        for (segment in segments) {
+            if (segment.renderStart > 0L) {
+                drawClipEdge(canvas, stripRect, segment.renderStart)
+            }
+            if (segment.renderEnd <= segment.renderStart) continue
+            if (segment.vanish) {
                 rect.set(
-                    xForTime(cursor),
+                    xForTime(segment.renderStart),
                     stripRect.top,
-                    xForTime(clip.startMs),
+                    xForTime(segment.renderEnd),
                     stripRect.bottom
                 )
                 canvas.drawRect(rect, clipDeletedPaint)
+                canvas.drawRect(rect, clipBorderPaint)
+                continue
             }
-            cursor = maxOf(cursor, clip.endMs)
-        }
-        if (cursor < durationMs) {
-            rect.set(
-                xForTime(cursor),
-                stripRect.top,
-                xForTime(durationMs),
-                stripRect.bottom
-            )
-            canvas.drawRect(rect, clipDeletedPaint)
-        }
-
-        if (activeClipIndex in clipRanges.indices) {
-            val clip = clipRanges[activeClipIndex]
-            rect.set(
-                xForTime(clip.startMs),
-                stripRect.top,
-                xForTime(clip.endMs),
-                stripRect.bottom
-            )
-            canvas.drawRect(rect, clipActivePaint)
-            canvas.drawRect(rect, clipBorderPaint)
-        }
-
-        for (clip in clipRanges) {
-            if (clip.startMs > 0L) drawClipEdge(canvas, stripRect, clip.startMs)
-            if (clip.endMs < durationMs) drawClipEdge(canvas, stripRect, clip.endMs)
+            if (segment.clipIndex == activeClipIndex) {
+                rect.set(
+                    xForTime(segment.renderStart),
+                    stripRect.top,
+                    xForTime(segment.renderEnd),
+                    stripRect.bottom
+                )
+                canvas.drawRect(rect, clipActivePaint)
+                canvas.drawRect(rect, clipBorderPaint)
+            }
         }
         canvas.restore()
     }
@@ -441,7 +578,8 @@ class TimelineView @JvmOverloads constructor(
         canvas.clipRect(stripRect)
         for (cut in cutMarks) {
             if (cut > cutAppliedMs) break
-            val x = xForTime(cut)
+            val rendered = toRendered(cut) ?: continue
+            val x = xForTime(rendered)
             if (x < stripRect.left || x > stripRect.right) continue
             canvas.drawLine(x, stripRect.top, x, stripRect.bottom, cutMarkPaint)
         }
@@ -525,7 +663,7 @@ class TimelineView @JvmOverloads constructor(
     private fun refresh() {
         if (centerMs != lastNotifiedFocus) {
             lastNotifiedFocus = centerMs
-            onFocusChanged?.invoke(centerMs)
+            onFocusChanged?.invoke()
         }
         invalidate()
         scheduleFrames()
@@ -542,9 +680,9 @@ class TimelineView @JvmOverloads constructor(
         val times = ArrayList<Long>()
         var index = first
         while (index <= last) {
-            val timeMs = (index * chunkMs).toLong()
-            val key = quantize(timeMs)
-            if (key in 0..durationMs && !times.contains(key)) times.add(key)
+            val rendered = (index * chunkMs).toLong().coerceIn(0L, durationMs)
+            val key = quantize(toSource(rendered))
+            if (key in 0..sourceDurationMs && !times.contains(key)) times.add(key)
             index++
         }
         return times
@@ -745,5 +883,6 @@ class TimelineView @JvmOverloads constructor(
 
     companion object {
         private const val GRID_MS = 100L
+        private const val REMOVE_ANIM_MS = 280L
     }
 }
