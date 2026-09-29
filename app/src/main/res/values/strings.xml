@@ -44,6 +44,9 @@
     <string name="cut_error_export">Could not save the video. Please try again.</string>
     <string name="cut_permission_denied">Storage permission is required to save videos</string>
     <string name="cut_bad_video">Could not read this video</string>
+    <string name="cut_finalizing">Finalizing…</string>
+    <string name="cut_export_none">Cut the video first, then export</string>
+    <string name="export_cut_video">Export cut video</string>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>

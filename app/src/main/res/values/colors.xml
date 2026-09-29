@@ -52,4 +52,10 @@
     <!-- Cut / export dialog -->
     <color name="cut_mark">#FFF2F5FA</color>
     <color name="dialog_bg">#FF14161E</color>
+
+    <!-- Manual clip cutting (separate from auto cut) -->
+    <color name="clip_split">#FFFFC24D</color>
+    <color name="clip_active">#3338C6FF</color>
+    <color name="clip_deleted">#99000000</color>
+    <color name="clip_danger">#FFFF7A7A</color>
 </resources>

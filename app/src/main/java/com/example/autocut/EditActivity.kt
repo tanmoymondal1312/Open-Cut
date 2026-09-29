@@ -50,6 +50,7 @@ class EditActivity : AppCompatActivity() {
     private lateinit var timeline: TimelineView
     private lateinit var btnStartCut: View
     private lateinit var btnCutExport: View
+    private lateinit var btnQuickExport: View
     private val handler = Handler(Looper.getMainLooper())
     private var prepared = false
     private var seeking = false
@@ -64,6 +65,7 @@ class EditActivity : AppCompatActivity() {
     private var cutTimes = LongArray(0)
     private var autoExport = false
     private var resumeAfterCut = false
+    private var hasCutOutput = false
 
     private var cutDialog: Dialog? = null
     private lateinit var tvDialogTitle: TextView
@@ -122,6 +124,7 @@ class EditActivity : AppCompatActivity() {
         }
         btnStartCut = findViewById(R.id.btnStartCut)
         btnCutExport = findViewById(R.id.btnCutExport)
+        btnQuickExport = findViewById(R.id.btnQuickExport)
         wirePlayerControls()
         wireCutControls()
 
@@ -342,6 +345,7 @@ class EditActivity : AppCompatActivity() {
     private fun wireCutControls() {
         btnStartCut.setOnClickListener { startCut(autoExport = false) }
         btnCutExport.setOnClickListener { startCut(autoExport = true) }
+        btnQuickExport.setOnClickListener { startExport() }
     }
 
     private fun startCut(autoExport: Boolean) {
@@ -357,6 +361,7 @@ class EditActivity : AppCompatActivity() {
         cutTimes = cuts
         this.autoExport = autoExport
         cutState = CutState.CUTTING
+        hasCutOutput = false
         resumeAfterCut = prepared && videoView.isPlaying
         videoView.pause()
         syncPlayerControls()
@@ -424,6 +429,8 @@ class EditActivity : AppCompatActivity() {
             else getString(R.string.cut_dialog_preparing)
         tvDialogPercent.visibility = View.VISIBLE
         tvDialogPercent.text = getString(R.string.cut_dialog_percent, 0)
+        progressCut.clearAnimation()
+        progressCut.isIndeterminate = false
         progressCut.visibility = View.VISIBLE
         progressCut.progress = 0
         btnDialogCancel.visibility = View.VISIBLE
@@ -436,8 +443,9 @@ class EditActivity : AppCompatActivity() {
         tvDialogStatus.text = getString(R.string.cut_done_status, cutTimes.size)
         tvDialogPercent.visibility = View.VISIBLE
         tvDialogPercent.text = getString(R.string.cut_dialog_percent, 100)
-        progressCut.visibility = View.VISIBLE
-        progressCut.progress = 100
+        progressCut.clearAnimation()
+        progressCut.isIndeterminate = false
+        progressCut.visibility = View.GONE
         btnDialogCancel.visibility = View.GONE
         btnDialogClose.visibility = View.VISIBLE
         btnDialogExport.visibility = View.VISIBLE
@@ -468,7 +476,11 @@ class EditActivity : AppCompatActivity() {
     }
 
     private fun startExport() {
-        if (cutState != CutState.CUT_DONE) return
+        if (cutState == CutState.CUTTING || cutState == CutState.EXPORTING) return
+        if (!hasCutOutput || !engine.outputExists()) {
+            Toast.makeText(this, R.string.cut_export_none, Toast.LENGTH_SHORT).show()
+            return
+        }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
             ContextCompat.checkSelfPermission(
                 this,
@@ -521,7 +533,7 @@ class EditActivity : AppCompatActivity() {
 
     private fun setActionButtonsEnabled(enabled: Boolean) {
         val alpha = if (enabled) 1f else 0.45f
-        for (button in listOf(btnStartCut, btnCutExport)) {
+        for (button in listOf(btnStartCut, btnCutExport, btnQuickExport)) {
             button.isEnabled = enabled
             button.alpha = alpha
         }
@@ -535,15 +547,22 @@ class EditActivity : AppCompatActivity() {
             totalCuts: Int
         ) {
             if (cutState != CutState.CUTTING) return
-            tvDialogPercent.text = getString(R.string.cut_dialog_percent, percent)
-            tvDialogStatus.text = getString(R.string.cut_dialog_count, appliedCuts, totalCuts)
-            progressCut.progress = percent
+            val finalizing = percent >= 100
+            val shown = if (finalizing) FINALIZING_PERCENT else percent
+            tvDialogPercent.text = getString(R.string.cut_dialog_percent, shown)
+            tvDialogStatus.text = if (finalizing) {
+                getString(R.string.cut_finalizing)
+            } else {
+                getString(R.string.cut_dialog_count, appliedCuts, totalCuts)
+            }
+            progressCut.progress = shown
             timeline.setCutProgress(processedMs)
         }
 
         override fun onCutReady(output: File) {
             if (cutState != CutState.CUTTING) return
             cutState = CutState.CUT_DONE
+            hasCutOutput = true
             timeline.setCutProgress(Long.MAX_VALUE)
             if (autoExport) {
                 startExport()
@@ -634,5 +653,6 @@ class EditActivity : AppCompatActivity() {
         private const val DIALOG_DIM = 0.55f
         private const val DIALOG_WIDTH_FRACTION = 0.86f
         private const val REQUEST_STORAGE = 41
+        private const val FINALIZING_PERCENT = 99
     }
 }

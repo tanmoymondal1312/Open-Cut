@@ -454,6 +454,8 @@ class CutEngine(private val context: Context) {
         cancelled = true
     }
 
+    fun outputExists(): Boolean = outputFile().exists() && outputFile().length() > 0L
+
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun mediaStoreExport(fileName: String, listener: Listener): Boolean {
         val values = ContentValues().apply {
