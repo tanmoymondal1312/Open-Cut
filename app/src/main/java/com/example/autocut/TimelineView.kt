@@ -5,6 +5,7 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
@@ -21,8 +22,15 @@ import android.view.View
 import android.widget.OverScroller
 import androidx.interpolator.view.animation.FastOutSlowInInterpolator
 import androidx.core.content.ContextCompat
+import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.FFmpegKitConfig
+import com.arthenica.ffmpegkit.ReturnCode
+import java.io.File
 import java.util.LinkedHashSet
 import java.util.Locale
+import java.util.concurrent.Callable
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.TreeMap
 import java.util.concurrent.Executors
 import kotlin.math.ceil
@@ -179,7 +187,14 @@ class TimelineView @JvmOverloads constructor(
     private var frameFailLogs = 0
     private var scheduleLogs = 0
     private val executor = Executors.newSingleThreadExecutor()
+    private val mmrExecutor = Executors.newSingleThreadExecutor()
     private var released = false
+
+    @Volatile
+    private var mmrBroken = false
+
+    @Volatile
+    private var frameUri: Uri? = null
 
     init {
         bgPaint.color = ContextCompat.getColor(context, R.color.timeline_bg)
@@ -380,6 +395,8 @@ class TimelineView @JvmOverloads constructor(
     fun setVideoUri(uri: Uri) {
         cancelRemoval()
         sourceDurationMs = 0L
+        mmrBroken = false
+        frameUri = uri
         rebuildLayout()
         synchronized(frameLock) {
             queue.clear()
@@ -396,6 +413,10 @@ class TimelineView @JvmOverloads constructor(
                     .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                     ?.toLongOrNull() ?: 0L
                 Log.d("AutoCut", "timeline retriever ok durMs=$duration")
+                if (duration <= 0L) {
+                    mmrBroken = true
+                    Log.d("AutoCut", "timeline MMR unusable, ffmpeg frames enabled")
+                }
                 synchronized(retrieverLock) {
                     try {
                         retriever?.release()
@@ -408,10 +429,14 @@ class TimelineView @JvmOverloads constructor(
                     if (!released) setDuration(duration)
                 }
             } catch (error: Exception) {
+                mmrBroken = true
                 Log.d("AutoCut", "timeline retriever FAIL err=$error")
                 try {
                     fresh?.release()
                 } catch (ignored: Exception) {
+                }
+                post {
+                    scheduleFrames()
                 }
             }
         }
@@ -434,6 +459,7 @@ class TimelineView @JvmOverloads constructor(
         cancelRemoval()
         released = true
         executor.shutdownNow()
+        mmrExecutor.shutdownNow()
         synchronized(retrieverLock) {
             try {
                 retriever?.release()
@@ -750,32 +776,96 @@ class TimelineView @JvmOverloads constructor(
     }
 
     private fun decodeFrame(timeMs: Long): Bitmap? {
-        synchronized(retrieverLock) {
-            if (released) return null
-            val source = try {
-                retriever?.getFrameAtTime(
+        if (mmrBroken) return decodeFrameFfmpeg(timeMs)
+        val future = mmrExecutor.submit(Callable<Bitmap?> {
+            synchronized(retrieverLock) {
+                if (released) return@Callable null
+                val source = retriever?.getFrameAtTime(
                     timeMs * 1000,
                     MediaMetadataRetriever.OPTION_CLOSEST
-                )
-            } catch (error: Exception) {
-                if (frameFailLogs < 5) {
-                    frameFailLogs++
-                    Log.d("AutoCut", "frame throw t=$timeMs err=$error")
-                }
-                null
+                ) ?: return@Callable null
+                cropToTile(source)
             }
-            if (source == null) {
+        })
+        val bitmap = try {
+            future.get(FRAME_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        } catch (timeout: TimeoutException) {
+            future.cancel(true)
+            mmrBroken = true
+            Log.d("AutoCut", "MMR frame timeout t=$timeMs, switching to ffmpeg")
+            decodeFrameFfmpeg(timeMs)
+        } catch (error: Throwable) {
+            Log.d("AutoCut", "MMR frame error t=$timeMs err=$error")
+            null
+        }
+        if (bitmap == null && !mmrBroken) {
+            if (frameFailLogs < 5) {
+                frameFailLogs++
+                Log.d(
+                    "AutoCut",
+                    "frame null t=$timeMs hasRetriever=${retriever != null} " +
+                        "durMs=$sourceDurationMs"
+                )
+            }
+        }
+        return bitmap
+    }
+
+    private fun decodeFrameFfmpeg(timeMs: Long): Bitmap? {
+        val uri = frameUri ?: return null
+        if (sourceDurationMs > 0L && timeMs > sourceDurationMs + 1000L) return null
+        val dir = File(context.cacheDir, "frames")
+        if (!dir.exists()) dir.mkdirs()
+        val out = File(dir, "f$timeMs.jpg")
+        try {
+            if (out.exists()) out.delete()
+            val input = FFmpegKitConfig.getSafParameterForRead(context, uri)
+            val session = FFmpegKit.executeWithArguments(
+                arrayOf(
+                    "-y",
+                    "-loglevel", "error",
+                    "-ss", String.format(Locale.US, "%.3f", timeMs / 1000.0),
+                    "-i", input,
+                    "-frames:v", "1",
+                    "-q:v", "3",
+                    out.absolutePath
+                )
+            )
+            if (!ReturnCode.isSuccess(session.returnCode)) {
                 if (frameFailLogs < 5) {
                     frameFailLogs++
                     Log.d(
                         "AutoCut",
-                        "frame null t=$timeMs hasRetriever=${retriever != null} " +
-                            "durMs=$sourceDurationMs"
+                        "ffmpeg frame fail t=$timeMs rc=${session.returnCode} " +
+                            "out=${session.output}"
                     )
                 }
                 return null
             }
-            return cropToTile(source)
+            val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
+            val bitmap = BitmapFactory.decodeFile(out.absolutePath, options)
+            if (bitmap == null) {
+                if (frameFailLogs < 5) {
+                    frameFailLogs++
+                    Log.d("AutoCut", "ffmpeg frame decode null t=$timeMs")
+                }
+                return null
+            }
+            if (frameFailLogs == 0) {
+                Log.d("AutoCut", "ffmpeg frame ok t=$timeMs ${bitmap.width}x${bitmap.height}")
+            }
+            return cropToTile(bitmap)
+        } catch (error: Throwable) {
+            if (frameFailLogs < 5) {
+                frameFailLogs++
+                Log.d("AutoCut", "ffmpeg frame error t=$timeMs err=$error")
+            }
+            return null
+        } finally {
+            try {
+                out.delete()
+            } catch (ignored: Exception) {
+            }
         }
     }
 
@@ -914,5 +1004,6 @@ class TimelineView @JvmOverloads constructor(
     companion object {
         private const val GRID_MS = 100L
         private const val REMOVE_ANIM_MS = 280L
+        private const val FRAME_TIMEOUT_MS = 2500L
     }
 }
