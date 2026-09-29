@@ -1,4 +1,4 @@
-package com.example.autocut
+package com.mediaghor.autocut
 
 data class ClipRange(val startMs: Long, val endMs: Long)
 

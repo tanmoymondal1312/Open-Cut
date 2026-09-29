@@ -1,4 +1,4 @@
-﻿package com.example.autocut
+package com.mediaghor.autocut
 
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter

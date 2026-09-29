@@ -104,7 +104,7 @@
         </FrameLayout>
 
         <!-- ================= TIMELINE ================= -->
-        <com.example.autocut.TimelineView
+        <com.mediaghor.autocut.TimelineView
             android:id="@+id/timeline"
             android:layout_width="0dp"
             android:layout_height="132dp"

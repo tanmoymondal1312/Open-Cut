@@ -155,7 +155,7 @@
                         </LinearLayout>
                     </LinearLayout>
 
-                    <com.example.autocut.CutDensityPreviewView
+                    <com.mediaghor.autocut.CutDensityPreviewView
                         android:id="@+id/previewDensity"
                         android:layout_width="match_parent"
                         android:layout_height="72dp"

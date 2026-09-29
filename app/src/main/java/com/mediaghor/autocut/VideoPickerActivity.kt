@@ -1,4 +1,4 @@
-package com.example.autocut
+package com.mediaghor.autocut
 
 import android.Manifest
 import android.content.ContentUris
