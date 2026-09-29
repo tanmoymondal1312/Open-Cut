@@ -6,11 +6,13 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -65,6 +67,7 @@ class EditActivity : AppCompatActivity() {
 
     private var videoUri: Uri? = null
     private var videoFps = 0
+    private var probedDurationMs = 0L
     private val engine by lazy { CutEngine(applicationContext) }
     private var cutState = CutState.IDLE
     private var cutTimes = LongArray(0)
@@ -153,9 +156,12 @@ class EditActivity : AppCompatActivity() {
     private fun probeFrameRate(uri: Uri) {
         Thread {
             var fps = 0
+            var durationMs = 0L
             try {
                 val input = FFmpegKitConfig.getSafParameterForRead(applicationContext, uri)
-                fps = parseFrameRate(FFprobeKit.getMediaInformation(input).mediaInformation)
+                val info = FFprobeKit.getMediaInformation(input).mediaInformation
+                fps = parseFrameRate(info)
+                durationMs = ((info?.duration ?: "0").toDoubleOrNull() ?: 0.0).toLong() * 1000L
             } catch (error: Throwable) {
                 fps = 0
             }
@@ -165,6 +171,15 @@ class EditActivity : AppCompatActivity() {
                     videoFps = result
                     AppSettings.setLastVideoFps(this, result)
                 }
+                if (durationMs > 0 && videoUri == uri) {
+                    probedDurationMs = durationMs
+                    if (prepared && clipModel.durationMs <= 0) {
+                        clipModel.reset(durationMs)
+                        refreshClipUi()
+                        updateClock(videoView.currentPosition.toLong(), durationMs)
+                    }
+                }
+                Log.d(TAG, "probe fps=$result durMs=$durationMs")
             }
         }.start()
     }
@@ -201,7 +216,7 @@ class EditActivity : AppCompatActivity() {
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
                 if (!fromUser || !prepared) return
-                val duration = videoView.duration
+                val duration = fallbackDurationMs().toInt()
                 if (duration <= 0) return
                 val position = progress.toLong() * duration / 1000L
                 videoView.seekTo(position.toInt())
@@ -277,7 +292,7 @@ class EditActivity : AppCompatActivity() {
 
     private fun updateSeekBar() {
         if (!prepared || seeking) return
-        val duration = videoView.duration
+        val duration = fallbackDurationMs().toInt()
         if (duration <= 0) return
         val position = videoView.currentPosition.toLong()
         seekBar.progress = (position * 1000L / duration).toInt()
@@ -315,9 +330,12 @@ class EditActivity : AppCompatActivity() {
                 fitPreviewToVideo(width, height)
             }
             fitPreviewToVideo(mediaPlayer.videoWidth, mediaPlayer.videoHeight)
-            clipModel.reset(mediaPlayer.duration.toLong())
+            val mpDuration = mediaPlayer.duration.toLong()
+            val durationMs = if (mpDuration > 0) mpDuration else fallbackDurationMs()
+            Log.d(TAG, "onPrepared mpDur=$mpDuration vwDur=${videoView.duration} resolved=$durationMs")
+            clipModel.reset(durationMs)
             refreshClipUi()
-            updateClock(0L, mediaPlayer.duration.toLong())
+            updateClock(0L, durationMs)
             videoView.start()
             syncPlayerControls()
             showControls()
@@ -327,6 +345,25 @@ class EditActivity : AppCompatActivity() {
             true
         }
         videoView.setVideoURI(uri)
+    }
+
+    private fun fallbackDurationMs(): Long {
+        videoView.duration.toLong().takeIf { it > 0 }?.let { return it }
+        clipModel.durationMs.takeIf { it > 0 }?.let { return it }
+        probedDurationMs.takeIf { it > 0 }?.let { return it }
+        videoUri?.let { uri ->
+            try {
+                val retriever = MediaMetadataRetriever()
+                retriever.setDataSource(this, uri)
+                val ms = retriever
+                    .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.toLongOrNull() ?: 0L
+                retriever.release()
+                if (ms > 0) return ms
+            } catch (error: Exception) {
+            }
+        }
+        return 0L
     }
 
     private fun fitPreviewToVideo(videoWidth: Int, videoHeight: Int) {
@@ -434,7 +471,12 @@ class EditActivity : AppCompatActivity() {
     private fun startCut(autoExport: Boolean) {
         if (cutState == CutState.CUTTING || cutState == CutState.EXPORTING) return
         val uri = videoUri ?: return
-        val durationMs = videoView.duration
+        val durationMs = fallbackDurationMs().toInt()
+        Log.d(
+            TAG,
+            "startCut prepared=$prepared vViewDur=${videoView.duration} " +
+                "clip=${clipModel.durationMs} probed=$probedDurationMs resolved=$durationMs"
+        )
         if (!prepared || durationMs <= 0) {
             Toast.makeText(this, R.string.cut_bad_video, Toast.LENGTH_SHORT).show()
             return
@@ -749,6 +791,7 @@ class EditActivity : AppCompatActivity() {
     }
 
     companion object {
+        private const val TAG = "AutoCut"
         var activeInstance: WeakReference<EditActivity>? = null
         private const val CONTROLS_HIDE_MS = 3000L
         private const val DIALOG_DIM = 0.55f
