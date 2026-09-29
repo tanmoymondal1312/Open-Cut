@@ -418,6 +418,7 @@ class TimelineView @JvmOverloads constructor(
     }
 
     fun setDuration(ms: Long) {
+        if (ms <= 0L && sourceDurationMs > 0L) return
         cancelRemoval()
         sourceDurationMs = ms
         rebuildLayout()
@@ -426,6 +427,8 @@ class TimelineView @JvmOverloads constructor(
         clampCenter()
         refresh()
     }
+
+    fun hasSourceDuration(): Boolean = sourceDurationMs > 0L
 
     fun release() {
         cancelRemoval()

@@ -178,6 +178,9 @@ class EditActivity : AppCompatActivity() {
                         refreshClipUi()
                         updateClock(videoView.currentPosition.toLong(), durationMs)
                     }
+                    if (!timeline.hasSourceDuration()) {
+                        timeline.setDuration(durationMs)
+                    }
                 }
                 Log.d(TAG, "probe fps=$result durMs=$durationMs")
             }
