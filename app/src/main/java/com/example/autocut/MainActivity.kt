@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.view.View
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.ViewCompat
@@ -35,6 +36,16 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.btnOpenVideo).setOnClickListener {
             startActivity(Intent(this, VideoPickerActivity::class.java))
+        }
+        findViewById<View>(R.id.btnRecentFiles).setOnClickListener {
+            val dialog = AlertDialog.Builder(this)
+                .setIcon(R.drawable.ic_scissors)
+                .setTitle(R.string.not_added_title)
+                .setMessage(R.string.not_added_message)
+                .setPositiveButton(android.R.string.ok, null)
+                .create()
+            dialog.window?.setBackgroundDrawableResource(R.drawable.bg_dialog_cut)
+            dialog.show()
         }
         findViewById<View>(R.id.navEdit).setOnClickListener {
             startActivity(Intent(this, VideoPickerActivity::class.java))

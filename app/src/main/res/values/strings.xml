@@ -5,6 +5,8 @@
     <string name="hero_subtitle">Open a video to start</string>
     <string name="open_video">Open Video</string>
     <string name="recent_files">Recent Files</string>
+    <string name="not_added_title">Recent Files</string>
+    <string name="not_added_message">This feature has not been added by the developer.</string>
     <string name="no_recent_title">No recent videos</string>
     <string name="no_recent_desc">Your edited videos will appear here</string>
     <string name="nav_home">Home</string>
