@@ -13,6 +13,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.SystemClock
 import android.util.AttributeSet
+import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -175,6 +176,7 @@ class TimelineView @JvmOverloads constructor(
 
     private val retrieverLock = Any()
     private var retriever: MediaMetadataRetriever? = null
+    private var frameFailLogs = 0
     private val executor = Executors.newSingleThreadExecutor()
     private var released = false
 
@@ -743,8 +745,23 @@ class TimelineView @JvmOverloads constructor(
                     MediaMetadataRetriever.OPTION_CLOSEST
                 )
             } catch (error: Exception) {
+                if (frameFailLogs < 5) {
+                    frameFailLogs++
+                    Log.d("AutoCut", "frame throw t=$timeMs err=$error")
+                }
                 null
-            } ?: return null
+            }
+            if (source == null) {
+                if (frameFailLogs < 5) {
+                    frameFailLogs++
+                    Log.d(
+                        "AutoCut",
+                        "frame null t=$timeMs hasRetriever=${retriever != null} " +
+                            "durMs=$sourceDurationMs"
+                    )
+                }
+                return null
+            }
             return cropToTile(source)
         }
     }
