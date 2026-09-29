@@ -12,6 +12,13 @@
 
     <style name="Theme.AutoCut" parent="Base.Theme.AutoCut" />
 
+    <!-- Splash screen (API 26-30) - branding comes from the custom layout -->
+    <style name="Theme.AutoCut.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/white</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_round</item>
+        <item name="postSplashScreenTheme">@style/Theme.AutoCut</item>
+    </style>
+
     <!-- Bottom-sheet video picker (Google Photo Picker style) -->
     <style name="Theme.AutoCut.Picker" parent="Theme.AutoCut">
         <item name="android:windowBackground">@android:color/transparent</item>

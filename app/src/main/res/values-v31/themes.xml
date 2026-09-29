@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Splash screen (API 31+) with "Made With Mediaghor" branding at the bottom -->
+    <style name="Theme.AutoCut.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/white</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_round</item>
+        <item name="android:windowSplashScreenBrandingImage">@drawable/ic_mediaghor_branding</item>
+        <item name="postSplashScreenTheme">@style/Theme.AutoCut</item>
+    </style>
+
+</resources>
