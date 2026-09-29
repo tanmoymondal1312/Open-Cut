@@ -81,8 +81,10 @@ class CutEngine(private val context: Context) {
         listener: Listener,
         generation: Int
     ) {
+        val t0 = android.os.SystemClock.elapsedRealtime()
         val probeInput = FFmpegKitConfig.getSafParameterForRead(context, uri)
         val probe = FFprobeKit.getMediaInformation(probeInput).mediaInformation
+        val tProbe = android.os.SystemClock.elapsedRealtime()
         val durationMs = probe?.duration?.toDoubleOrNull()
             ?.let { (it * 1000.0).toLong() }
             ?.takeIf { it > 0L }
@@ -91,6 +93,8 @@ class CutEngine(private val context: Context) {
         val audioBitrate = pickAudioBitrate(probe)
 
         val frameIndex = probeFrameIndex(uri)
+        val tFrameIndex = android.os.SystemClock.elapsedRealtime()
+        Log.d(TAG, "timing probe=${tProbe - t0}ms frameIndex=${tFrameIndex - tProbe}ms")
         val maxWorkers = minOf(
             MAX_WORKERS,
             maxOf(1, Runtime.getRuntime().availableProcessors() / 2)
@@ -159,8 +163,15 @@ class CutEngine(private val context: Context) {
             if (!muxStarted.compareAndSet(false, true)) return
             Thread {
                 try {
+                    val tEncode = android.os.SystemClock.elapsedRealtime()
+                    Log.d(TAG, "timing encode=${tEncode - t0}ms workers=$workers")
                     val windowsUs = LongArray(workers) { jobs[it].endUs - jobs[it].startUs }
                     mux(workDir, outputs, windowsUs, audioFile, concatFile, hasAudio, listener, generation)
+                    Log.d(
+                        TAG,
+                        "timing mux=${android.os.SystemClock.elapsedRealtime() - tEncode}ms " +
+                            "total=${android.os.SystemClock.elapsedRealtime() - t0}ms"
+                    )
                 } catch (error: Throwable) {
                     Log.e(TAG, "mux error", error)
                     fail(error)
