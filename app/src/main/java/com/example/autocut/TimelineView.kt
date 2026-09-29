@@ -65,9 +65,19 @@ class TimelineView @JvmOverloads constructor(
     private val pillTextPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val cutMarkPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val clipSplitPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val clipActivePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val clipDeletedPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val clipBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private var cutMarks = LongArray(0)
     private var cutAppliedMs = Long.MIN_VALUE
+
+    private var clipRanges: List<ClipRange> = emptyList()
+    private var activeClipIndex = -1
+    private var clipsActive = false
+    private var lastNotifiedFocus = Long.MIN_VALUE
+    var onFocusChanged: ((Long) -> Unit)? = null
 
     private val scroller = OverScroller(context)
 
@@ -178,7 +188,31 @@ class TimelineView @JvmOverloads constructor(
         handlePaint.color = ContextCompat.getColor(context, R.color.timeline_playhead)
         cutMarkPaint.color = ContextCompat.getColor(context, R.color.cut_mark)
         cutMarkPaint.strokeWidth = dp(1.5f)
+        clipSplitPaint.color = ContextCompat.getColor(context, R.color.clip_split)
+        clipSplitPaint.strokeWidth = dp(2f)
+        clipActivePaint.color = ContextCompat.getColor(context, R.color.clip_active)
+        clipDeletedPaint.color = ContextCompat.getColor(context, R.color.clip_deleted)
+        clipBorderPaint.color = ContextCompat.getColor(context, R.color.clip_split)
+        clipBorderPaint.style = Paint.Style.STROKE
+        clipBorderPaint.strokeWidth = dp(1.5f)
     }
+
+    fun setClips(ranges: List<ClipRange>, activeIndex: Int) {
+        clipRanges = ranges
+        activeClipIndex = activeIndex
+        clipsActive = ranges.isNotEmpty() &&
+            !(ranges.size == 1 && ranges[0].startMs == 0L && ranges[0].endMs >= durationMs)
+        invalidate()
+    }
+
+    fun clearClips() {
+        clipRanges = emptyList()
+        activeClipIndex = -1
+        clipsActive = false
+        invalidate()
+    }
+
+    fun focusMs(): Long = centerMs
 
     fun setCutMarks(timesMs: LongArray, appliedUpToMs: Long) {
         cutMarks = timesMs
@@ -293,6 +327,7 @@ class TimelineView @JvmOverloads constructor(
         val stripRect = stripRect()
         canvas.drawRoundRect(stripRect, dp(6f), dp(6f), stripPaint)
         drawFrames(canvas, stripRect)
+        drawClipOverlay(canvas, stripRect)
         drawCutMarks(canvas, stripRect)
         drawRuler(canvas, w, stripRect.top)
         drawPlayhead(canvas, w, h)
@@ -344,6 +379,60 @@ class TimelineView @JvmOverloads constructor(
             index++
         }
         canvas.restore()
+    }
+
+    private fun drawClipOverlay(canvas: Canvas, stripRect: RectF) {
+        if (!clipsActive || durationMs <= 0L || width <= 0 || pxPerMs <= 0f) return
+        canvas.save()
+        canvas.clipRect(stripRect)
+
+        var cursor = 0L
+        val rect = RectF()
+        for (clip in clipRanges) {
+            if (clip.startMs > cursor) {
+                rect.set(
+                    xForTime(cursor),
+                    stripRect.top,
+                    xForTime(clip.startMs),
+                    stripRect.bottom
+                )
+                canvas.drawRect(rect, clipDeletedPaint)
+            }
+            cursor = maxOf(cursor, clip.endMs)
+        }
+        if (cursor < durationMs) {
+            rect.set(
+                xForTime(cursor),
+                stripRect.top,
+                xForTime(durationMs),
+                stripRect.bottom
+            )
+            canvas.drawRect(rect, clipDeletedPaint)
+        }
+
+        if (activeClipIndex in clipRanges.indices) {
+            val clip = clipRanges[activeClipIndex]
+            rect.set(
+                xForTime(clip.startMs),
+                stripRect.top,
+                xForTime(clip.endMs),
+                stripRect.bottom
+            )
+            canvas.drawRect(rect, clipActivePaint)
+            canvas.drawRect(rect, clipBorderPaint)
+        }
+
+        for (clip in clipRanges) {
+            if (clip.startMs > 0L) drawClipEdge(canvas, stripRect, clip.startMs)
+            if (clip.endMs < durationMs) drawClipEdge(canvas, stripRect, clip.endMs)
+        }
+        canvas.restore()
+    }
+
+    private fun drawClipEdge(canvas: Canvas, stripRect: RectF, timeMs: Long) {
+        val x = xForTime(timeMs)
+        if (x < stripRect.left || x > stripRect.right) return
+        canvas.drawLine(x, stripRect.top, x, stripRect.bottom, clipSplitPaint)
     }
 
     private fun drawCutMarks(canvas: Canvas, stripRect: RectF) {
@@ -434,6 +523,10 @@ class TimelineView @JvmOverloads constructor(
     }
 
     private fun refresh() {
+        if (centerMs != lastNotifiedFocus) {
+            lastNotifiedFocus = centerMs
+            onFocusChanged?.invoke(centerMs)
+        }
         invalidate()
         scheduleFrames()
     }

@@ -50,6 +50,7 @@ class CutEngine(private val context: Context) {
         fallbackDurationMs: Long,
         cuts: LongArray,
         cutsPerSecond: Long,
+        keepRanges: List<ClipRange>?,
         listener: Listener
     ) {
         val generation = generationCounter.incrementAndGet()
@@ -57,7 +58,10 @@ class CutEngine(private val context: Context) {
         sessions.clear()
         Thread {
             try {
-                runCut(uri, fallbackDurationMs, cuts, cutsPerSecond, listener, generation)
+                runCut(
+                    uri, fallbackDurationMs, cuts, cutsPerSecond,
+                    keepRanges, listener, generation
+                )
             } catch (error: Throwable) {
                 Log.e(TAG, "cut error", error)
                 if (isStale(generation)) return@Thread
@@ -73,6 +77,7 @@ class CutEngine(private val context: Context) {
         fallbackDurationMs: Long,
         cuts: LongArray,
         cutsPerSecond: Long,
+        keepRanges: List<ClipRange>?,
         listener: Listener,
         generation: Int
     ) {
@@ -86,40 +91,18 @@ class CutEngine(private val context: Context) {
         val audioBitrate = pickAudioBitrate(probe)
 
         val frameIndex = probeFrameIndex(uri)
-        var workers = minOf(
+        val maxWorkers = minOf(
             MAX_WORKERS,
             maxOf(1, Runtime.getRuntime().availableProcessors() / 2)
         )
-        val startsUs = LongArray(MAX_WORKERS + 1)
-        if (frameIndex == null) {
-            workers = 1
-            startsUs[0] = 0L
-            startsUs[1] = durationMs * 1000L
-        } else {
-            while (true) {
-                val nominalMs = durationMs.toDouble() / workers
-                var aligned = true
-                for (index in 0 until workers) {
-                    val us = if (index == 0) {
-                        0L
-                    } else {
-                        val gridSec =
-                            Math.ceil(nominalMs * index * cutsPerSecond / 1000.0) / cutsPerSecond
-                        firstFrameUsAt(frameIndex, gridSec)
-                    }
-                    startsUs[index] = us
-                    if (index > 0 && us <= startsUs[index - 1]) {
-                        aligned = false
-                    }
-                }
-                startsUs[workers] = durationMs * 1000L
-                if (startsUs[workers - 1] >= startsUs[workers]) aligned = false
-                if (aligned || workers == 1) break
-                workers--
-            }
-        }
-        val boundaries = LongArray(workers + 1) { startsUs[it] / 1000L }
-        val lens = LongArray(workers) { (boundaries[it + 1] - boundaries[it]).coerceAtLeast(1L) }
+        val ranges = normalizeRanges(keepRanges, durationMs)
+        val wholeVideo = ranges.size == 1 &&
+            ranges[0].startMs == 0L && ranges[0].endMs >= durationMs
+        val jobs = planJobs(ranges, maxWorkers, cutsPerSecond, frameIndex)
+        val workers = jobs.size
+        val jobStartMs = LongArray(workers) { jobs[it].startUs / 1000L }
+        val jobEndMs = LongArray(workers) { jobs[it].endUs / 1000L }
+        val lens = LongArray(workers) { (jobEndMs[it] - jobStartMs[it]).coerceAtLeast(1L) }
         val keyInt = frameIndex?.let { ptsUs ->
             val spanSec = (ptsUs[ptsUs.size - 1] - ptsUs[0]) / 1_000_000.0
             if (spanSec > 0) {
@@ -151,7 +134,7 @@ class CutEngine(private val context: Context) {
             val fraction = (fractionTotal / workers).coerceIn(0.0, 1.0)
             val percent = (fraction * 100).toInt().coerceIn(0, 100)
             val processedMs = (fraction * durationMs).toLong()
-            val applied = countApplied(cuts, boundaries, local)
+            val applied = countApplied(cuts, jobStartMs, jobEndMs, local)
             main.post {
                 if (!stale()) {
                     listener.onCutProgress(percent, processedMs, applied, cuts.size)
@@ -176,7 +159,7 @@ class CutEngine(private val context: Context) {
             if (!muxStarted.compareAndSet(false, true)) return
             Thread {
                 try {
-                    val windowsUs = LongArray(workers) { startsUs[it + 1] - startsUs[it] }
+                    val windowsUs = LongArray(workers) { jobs[it].endUs - jobs[it].startUs }
                     mux(workDir, outputs, windowsUs, audioFile, concatFile, hasAudio, listener, generation)
                 } catch (error: Throwable) {
                     Log.e(TAG, "mux error", error)
@@ -187,18 +170,23 @@ class CutEngine(private val context: Context) {
 
         for (index in 0 until workers) {
             if (cancelled) return
-            val startUs = startsUs[index]
-            val lenUs = startsUs[index + 1] - startUs
+            val job = jobs[index]
+            val startUs = job.startUs
+            val lenUs = job.endUs - startUs
             val tUs = if (frameIndex == null) {
                 lenUs + 1000L
             } else {
-                val lastIndex = if (index == workers - 1) {
+                val lastIndex = if (job.endUs >= durationMs * 1000L) {
                     frameIndex.size - 1
                 } else {
-                    firstFrameIndexAt(frameIndex, startsUs[index + 1]) - 1
+                    firstFrameIndexAt(frameIndex, job.endUs) - 1
                 }
-                val lastLocalUs = frameIndex[lastIndex] - startUs
-                if (lastLocalUs >= lenUs) lastLocalUs + 100L else lenUs
+                if (lastIndex < 0) {
+                    lenUs
+                } else {
+                    val lastLocalUs = frameIndex[lastIndex] - startUs
+                    if (lastLocalUs >= lenUs) lastLocalUs + 100L else lenUs
+                }
             }
             val startSec = startUs / 1_000_000.0
             val offsetSeconds =
@@ -251,11 +239,26 @@ class CutEngine(private val context: Context) {
         }
 
         if (hasAudio && !cancelled) {
-            val audioArguments = arrayOf(
+            val audioArguments = mutableListOf(
                 "-y",
                 "-stats_period", "0.5",
-                "-threads", "2",
-                "-i", FFmpegKitConfig.getSafParameterForRead(context, uri),
+                "-threads", "2"
+            )
+            if (!wholeVideo && ranges.size == 1) {
+                val range = ranges[0]
+                audioArguments += listOf(
+                    "-ss", micros(range.startMs * 1000L),
+                    "-t", micros((range.endMs - range.startMs) * 1000L)
+                )
+            }
+            audioArguments += listOf("-i", FFmpegKitConfig.getSafParameterForRead(context, uri))
+            if (!wholeVideo && ranges.size > 1) {
+                val select = ranges.joinToString("+") { range ->
+                    "between(t," + (range.startMs / 1000.0) + "," + (range.endMs / 1000.0) + ")"
+                }
+                audioArguments += listOf("-filter:a", select + ",asetpts=N/SR/TB")
+            }
+            audioArguments += listOf(
                 "-map", "0:a:0",
                 "-vn",
                 "-c:a", "aac",
@@ -263,7 +266,7 @@ class CutEngine(private val context: Context) {
                 audioFile.absolutePath
             )
             val audioSession = FFmpegKit.executeWithArgumentsAsync(
-                audioArguments,
+                audioArguments.toTypedArray(),
                 { completed ->
                     if (stale()) return@executeWithArgumentsAsync
                     if (ReturnCode.isSuccess(completed.returnCode)) {
@@ -325,14 +328,116 @@ class CutEngine(private val context: Context) {
         }
     }
 
-    private fun countApplied(cuts: LongArray, boundaries: LongArray, local: LongArray): Int {
+    private class Job(val startUs: Long, val endUs: Long)
+
+    private fun normalizeRanges(
+        keepRanges: List<ClipRange>?,
+        durationMs: Long
+    ): List<ClipRange> {
+        val full = ClipRange(0L, durationMs.coerceAtLeast(1L))
+        if (keepRanges == null || keepRanges.isEmpty()) return listOf(full)
+        val sorted = keepRanges
+            .map { ClipRange(it.startMs.coerceIn(0L, durationMs), it.endMs.coerceIn(0L, durationMs)) }
+            .filter { it.endMs > it.startMs }
+            .sortedBy { it.startMs }
+        if (sorted.isEmpty()) return listOf(full)
+        val merged = ArrayList<ClipRange>(sorted.size)
+        for (range in sorted) {
+            val last = merged.lastOrNull()
+            if (last != null && range.startMs <= last.endMs) {
+                merged[merged.size - 1] = ClipRange(last.startMs, maxOf(last.endMs, range.endMs))
+            } else {
+                merged.add(range)
+            }
+        }
+        if (merged.size == 1 && merged[0].startMs == 0L && merged[0].endMs >= durationMs) {
+            return listOf(full)
+        }
+        return merged
+    }
+
+    private fun planJobs(
+        ranges: List<ClipRange>,
+        maxWorkers: Int,
+        cutsPerSecond: Long,
+        frameIndex: LongArray?
+    ): List<Job> {
+        val totalMs = ranges.sumOf { it.endMs - it.startMs }.coerceAtLeast(1L)
+        val jobs = ArrayList<Job>()
+        for (range in ranges) {
+            val rangeMs = range.endMs - range.startMs
+            val desired = if (ranges.size == 1) {
+                maxWorkers
+            } else {
+                val rounded = Math.round(maxWorkers.toDouble() * rangeMs / totalMs)
+                maxOf(1L, rounded).coerceAtMost(maxWorkers.toLong()).toInt()
+            }
+            val starts = planRange(range.startMs, range.endMs, desired, cutsPerSecond, frameIndex)
+            for (index in 0 until starts.size - 1) {
+                if (starts[index + 1] > starts[index]) {
+                    jobs.add(Job(starts[index], starts[index + 1]))
+                }
+            }
+        }
+        if (jobs.isEmpty()) {
+            jobs.add(Job(0L, ranges[0].endMs * 1000L))
+        }
+        return jobs
+    }
+
+    private fun planRange(
+        startMs: Long,
+        endMs: Long,
+        desiredWorkers: Int,
+        cutsPerSecond: Long,
+        frameIndex: LongArray?
+    ): LongArray {
+        val startUs = startMs * 1000L
+        val endUs = endMs * 1000L
+        if (frameIndex == null || desiredWorkers <= 1 || endUs <= startUs) {
+            return longArrayOf(startUs, endUs)
+        }
+        var workers = desiredWorkers
+        var starts = longArrayOf(startUs, endUs)
+        while (true) {
+            val nominalMs = (endMs - startMs).toDouble() / workers
+            starts = LongArray(workers + 1)
+            var aligned = true
+            for (index in 0 until workers) {
+                val us = if (index == 0) {
+                    startUs
+                } else {
+                    val scaled = (startMs + nominalMs * index) * cutsPerSecond / 1000.0
+                    val gridSec = Math.ceil(scaled) / cutsPerSecond
+                    firstFrameUsAt(frameIndex, gridSec)
+                }
+                starts[index] = us
+                if (index > 0 && us <= starts[index - 1]) {
+                    aligned = false
+                }
+            }
+            starts[workers] = endUs
+            if (starts[workers - 1] >= starts[workers]) aligned = false
+            if (aligned || workers == 1) break
+            workers--
+        }
+        return starts
+    }
+
+    private fun countApplied(
+        cuts: LongArray,
+        jobStartMs: LongArray,
+        jobEndMs: LongArray,
+        local: LongArray
+    ): Int {
         var applied = 0
         for (cut in cuts) {
-            var worker = 0
-            while (worker < boundaries.size - 2 && cut >= boundaries[worker + 1]) {
-                worker++
+            for (job in jobStartMs.indices) {
+                if (cut >= jobStartMs[job] && cut < jobEndMs[job]) {
+                    if (local[job] >= cut - jobStartMs[job]) applied++
+                    break
+                }
             }
-            if (local[worker] >= cut - boundaries[worker]) applied++
         }
         return applied
     }

@@ -51,6 +51,11 @@ class EditActivity : AppCompatActivity() {
     private lateinit var btnStartCut: View
     private lateinit var btnCutExport: View
     private lateinit var btnQuickExport: View
+    private lateinit var tvClipInfo: TextView
+    private lateinit var btnClipSplit: View
+    private lateinit var btnClipDelete: View
+    private lateinit var btnClipUndo: View
+    private val clipModel = ClipEditModel()
     private val handler = Handler(Looper.getMainLooper())
     private var prepared = false
     private var seeking = false
@@ -125,8 +130,13 @@ class EditActivity : AppCompatActivity() {
         btnStartCut = findViewById(R.id.btnStartCut)
         btnCutExport = findViewById(R.id.btnCutExport)
         btnQuickExport = findViewById(R.id.btnQuickExport)
+        tvClipInfo = findViewById(R.id.tvClipInfo)
+        btnClipSplit = findViewById(R.id.btnClipSplit)
+        btnClipDelete = findViewById(R.id.btnClipDelete)
+        btnClipUndo = findViewById(R.id.btnClipUndo)
         wirePlayerControls()
         wireCutControls()
+        wireClipControls()
 
         val uri = intent.data
         if (uri == null) {
@@ -305,6 +315,8 @@ class EditActivity : AppCompatActivity() {
                 fitPreviewToVideo(width, height)
             }
             fitPreviewToVideo(mediaPlayer.videoWidth, mediaPlayer.videoHeight)
+            clipModel.reset(mediaPlayer.duration.toLong())
+            refreshClipUi()
             updateClock(0L, mediaPlayer.duration.toLong())
             videoView.start()
             syncPlayerControls()
@@ -348,6 +360,69 @@ class EditActivity : AppCompatActivity() {
         btnQuickExport.setOnClickListener { startExport() }
     }
 
+    private fun wireClipControls() {
+        timeline.onFocusChanged = { refreshClipUi() }
+        btnClipSplit.setOnClickListener { onClipSplit() }
+        btnClipDelete.setOnClickListener { onClipDelete() }
+        btnClipUndo.setOnClickListener { onClipUndo() }
+        refreshClipUi()
+    }
+
+    private fun onClipSplit() {
+        if (cutBusy()) return
+        val at = timeline.focusMs()
+        if (clipModel.activeIndexAt(at) < 0) {
+            Toast.makeText(this, R.string.clip_split_none, Toast.LENGTH_SHORT).show()
+        } else if (!clipModel.splitAt(at)) {
+            Toast.makeText(this, R.string.clip_split_gap, Toast.LENGTH_SHORT).show()
+        } else {
+            refreshClipUi()
+        }
+    }
+
+    private fun onClipDelete() {
+        if (cutBusy()) return
+        val at = timeline.focusMs()
+        if (clipModel.count <= 1) {
+            Toast.makeText(this, R.string.clip_last, Toast.LENGTH_SHORT).show()
+        } else if (clipModel.deleteAt(at)) {
+            Toast.makeText(this, R.string.clip_deleted_toast, Toast.LENGTH_SHORT).show()
+            refreshClipUi()
+        }
+    }
+
+    private fun onClipUndo() {
+        if (cutBusy()) return
+        if (clipModel.undo()) {
+            refreshClipUi()
+        } else {
+            Toast.makeText(this, R.string.clip_nothing_to_undo, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun cutBusy(): Boolean =
+        cutState == CutState.CUTTING || cutState == CutState.EXPORTING
+
+    private fun refreshClipUi() {
+        if (cutBusy()) return
+        val at = timeline.focusMs()
+        val active = clipModel.activeIndexAt(at)
+        timeline.setClips(clipModel.kept, active)
+        tvClipInfo.text = when {
+            clipModel.count <= 1 -> getString(R.string.clip_info_one)
+            active < 0 -> getString(R.string.clip_info_none)
+            else -> getString(R.string.clip_info_active, clipModel.count, active + 1)
+        }
+        applyClipButton(btnClipSplit, active >= 0)
+        applyClipButton(btnClipDelete, active >= 0 && clipModel.count > 1)
+        applyClipButton(btnClipUndo, clipModel.canUndo())
+    }
+
+    private fun applyClipButton(button: View, enabled: Boolean) {
+        button.isEnabled = enabled
+        button.alpha = if (enabled) 1f else 0.45f
+    }
+
     private fun startCut(autoExport: Boolean) {
         if (cutState == CutState.CUTTING || cutState == CutState.EXPORTING) return
         val uri = videoUri ?: return
@@ -357,7 +432,20 @@ class EditActivity : AppCompatActivity() {
             return
         }
         val cps = effectiveCutsPerSecond()
-        val cuts = buildCuts(durationMs, cps)
+        val duration = durationMs.toLong()
+        val kept = if (clipModel.count == 0) {
+            listOf(ClipRange(0L, duration))
+        } else {
+            clipModel.kept.toList()
+        }
+        val wholeClip = kept.size == 1 && kept[0].startMs == 0L && kept[0].endMs >= duration
+        val cuts = if (wholeClip) {
+            buildCuts(durationMs, cps)
+        } else {
+            buildCuts(durationMs, cps)
+                .filter { time -> kept.any { time >= it.startMs && time < it.endMs } }
+                .toLongArray()
+        }
         cutTimes = cuts
         this.autoExport = autoExport
         cutState = CutState.CUTTING
@@ -369,7 +457,7 @@ class EditActivity : AppCompatActivity() {
         setActionButtonsEnabled(false)
         timeline.setCutMarks(cuts, Long.MIN_VALUE)
         showCuttingDialog(cuts.size)
-        engine.cut(uri, durationMs.toLong(), cuts, cps.toLong(), cutListener)
+        engine.cut(uri, duration, cuts, cps.toLong(), kept, cutListener)
     }
 
     private fun effectiveCutsPerSecond(): Int {
@@ -533,10 +621,15 @@ class EditActivity : AppCompatActivity() {
 
     private fun setActionButtonsEnabled(enabled: Boolean) {
         val alpha = if (enabled) 1f else 0.45f
-        for (button in listOf(btnStartCut, btnCutExport, btnQuickExport)) {
+        val buttons = listOf(
+            btnStartCut, btnCutExport, btnQuickExport,
+            btnClipSplit, btnClipDelete, btnClipUndo
+        )
+        for (button in buttons) {
             button.isEnabled = enabled
             button.alpha = alpha
         }
+        if (enabled) refreshClipUi()
     }
 
     private val cutListener = object : CutEngine.Listener {

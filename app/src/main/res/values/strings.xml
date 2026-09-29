@@ -48,6 +48,19 @@
     <string name="cut_export_none">Cut the video first, then export</string>
     <string name="export_cut_video">Export cut video</string>
 
+    <!-- Manual clip cutting (separate feature from auto cut) -->
+    <string name="clip_info_one">Drag the line, then Split to cut a clip</string>
+    <string name="clip_info_active">%1$d clips · clip %2$d selected</string>
+    <string name="clip_info_none">Deleted section · drag onto a kept clip</string>
+    <string name="clip_split">Split</string>
+    <string name="clip_delete">Delete</string>
+    <string name="clip_undo">Undo</string>
+    <string name="clip_split_none">Drag the timeline onto a clip first</string>
+    <string name="clip_split_gap">Move the line away from the clip edge</string>
+    <string name="clip_last">Cannot delete the only clip</string>
+    <string name="clip_nothing_to_undo">Nothing to undo</string>
+    <string name="clip_deleted_toast">Clip deleted</string>
+
     <!-- Settings -->
     <string name="settings_title">Settings</string>
     <string name="settings_back">Back</string>
