@@ -547,7 +547,7 @@ class CutEngine(private val context: Context) {
     companion object {
         private const val TAG = "CutEngine"
         private const val OUTPUT_NAME = "output.mp4"
-        private const val MAX_WORKERS = 4
+        private const val MAX_WORKERS = 6
         private const val CRF = 18
         private const val DEFAULT_AUDIO_BITRATE = 160_000L
         private const val MIN_AUDIO_BITRATE = 64_000L
