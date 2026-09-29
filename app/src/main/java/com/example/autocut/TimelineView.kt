@@ -177,6 +177,7 @@ class TimelineView @JvmOverloads constructor(
     private val retrieverLock = Any()
     private var retriever: MediaMetadataRetriever? = null
     private var frameFailLogs = 0
+    private var scheduleLogs = 0
     private val executor = Executors.newSingleThreadExecutor()
     private var released = false
 
@@ -394,6 +395,7 @@ class TimelineView @JvmOverloads constructor(
                 val duration = fresh
                     .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                     ?.toLongOrNull() ?: 0L
+                Log.d("AutoCut", "timeline retriever ok durMs=$duration")
                 synchronized(retrieverLock) {
                     try {
                         retriever?.release()
@@ -406,6 +408,7 @@ class TimelineView @JvmOverloads constructor(
                     if (!released) setDuration(duration)
                 }
             } catch (error: Exception) {
+                Log.d("AutoCut", "timeline retriever FAIL err=$error")
                 try {
                     fresh?.release()
                 } catch (ignored: Exception) {
@@ -693,6 +696,13 @@ class TimelineView @JvmOverloads constructor(
     private fun scheduleFrames() {
         if (released) return
         val wanted = visibleFrameTimes()
+        if (scheduleLogs < 8) {
+            scheduleLogs++
+            Log.d(
+                "AutoCut",
+                "schedule wanted=${wanted.size} durMs=$durationMs srcDurMs=$sourceDurationMs pxPerMs=$pxPerMs"
+            )
+        }
         var startWorker = false
         synchronized(frameLock) {
             queue.clear()
