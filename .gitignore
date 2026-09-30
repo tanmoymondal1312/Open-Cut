@@ -17,6 +17,7 @@ local.properties
 # IDE
 .idea/
 *.apk
+!downloads/*.apk
 *.aab
 *.keystore
 *.jks
