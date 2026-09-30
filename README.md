@@ -14,7 +14,7 @@ smoothly with no stutter and no dropped frames.
 [![FFmpeg](https://img.shields.io/badge/engine-FFmpeg%208.1-007A33?logo=ffmpeg&logoColor=white)](https://ffmpeg.org)
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
-[![Download APK](https://img.shields.io/badge/%E2%AC%86%20Download%20APK-v1.0%20%C2%B7%2082%20MB-3DDC84?style=for-the-badge)](https://github.com/tanmoymondal1312/Open-Cut/raw/main/downloads/AutoCut-v1.0.apk)
+[![Download APK](https://img.shields.io/badge/%E2%AC%86%20Download%20APK-v1.0%20%C2%B7%2082%20MB-3DDC84?style=for-the-badge)](https://github.com/tanmoymondal1312/auto-cut/raw/main/downloads/AutoCut-v1.0.apk)
 
 [⬇️ Download](#-download) •
 [✨ Features](#-features) •
@@ -31,7 +31,7 @@ smoothly with no stutter and no dropped frames.
 
 | | |
 |:--|:--|
-| **Latest release** | **[AutoCut-v1.0.apk](https://github.com/tanmoymondal1312/Open-Cut/raw/main/downloads/AutoCut-v1.0.apk)** |
+| **Latest release** | **[AutoCut-v1.0.apk](https://github.com/tanmoymondal1312/auto-cut/raw/main/downloads/AutoCut-v1.0.apk)** |
 | Version | 1.0 (`versionCode` 1) |
 | Package | `com.mediaghor.autocut` |
 | Size | ~82 MB (bundles the full FFmpeg engine) |
@@ -151,8 +151,8 @@ JDK 17+ (bundled JBR works), and a device/emulator on API 26+.
 
 ```bash
 # 1. clone
-git clone https://github.com/tanmoymondal1312/Open-Cut.git
-cd Open-Cut
+git clone https://github.com/tanmoymondal1312/auto-cut.git
+cd auto-cut
 
 # 2. debug build
 ./gradlew assembleDebug          # Windows: gradlew.bat assembleDebug
@@ -196,7 +196,7 @@ Then:
 ## 📂 Project structure
 
 ```
-Open-Cut/
+auto-cut/
 ├── downloads/
 │   └── AutoCut-v1.0.apk          # ready-to-install release build
 ├── docs/screenshots/             # store listing & README screenshots
